@@ -33,7 +33,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   void initState() {
     super.initState();
-    // 🛠️ 멈춤 현상 해결 핵심: 화면 빌드가 완전히 100% 끝난 후에 비동기로 안전하게 위치와 TTS를 초기화합니다.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _gpsManager.initTts(widget.isEnglish); // TTS 언어 초기화
       _initCurrentLocation();
@@ -89,7 +88,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
         setState(() {
           _currentPosition = position;
         });
-        // 화면 배치가 완료되었으므로 안전하게 지도를 끕니다.
         _mapController.move(LatLng(position.latitude, position.longitude), 16.0);
       }
     } catch (e) {
@@ -137,17 +135,30 @@ class _TrackingScreenState extends State<TrackingScreen> {
           _currentPosition = position;
         });
 
-        // ⚙️ GpsManager 실행 및 UI 실시간 갱신 연결
+        // ⚙️ GpsManager 실행 및 UI 실시간 갱신 연결 체인
         _gpsManager.start(widget.isEnglish, () {
           if (mounted) {
             setState(() {
+              // 엔진에서 좌표가 업데이트될 때마다 지도를 부드럽게 동기화 이동시킵니다.
               if (_gpsManager.routePoints.isNotEmpty) {
-                _mapController.move(_gpsManager.routePoints.last, _mapController.camera.zoom);
+                _currentPosition = Position(
+                  latitude: _gpsManager.routePoints.last.latitude,
+                  longitude: _gpsManager.routePoints.last.longitude,
+                  timestamp: DateTime.now(),
+                  accuracy: 0.0,
+                  altitude: 0.0,
+                  altitudeAccuracy: 0.0,
+                  heading: 0.0,
+                  headingAccuracy: 0.0,
+                  speed: _gpsManager.speed / 3.6,
+                  speedAccuracy: 0.0,
+                );
               }
             });
           }
         });
 
+        // 🛠️ 화면 계기판 수치 동결 현상 해결: 1초마다 강제로 스냅샷을 찍어 화면을 리프레시합니다.
         _uiTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
           if (mounted && _isTracking) {
             setState(() {});
@@ -237,41 +248,15 @@ class _TrackingScreenState extends State<TrackingScreen> {
     }
   }
 
-  void _showMapSettings() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1A1A2E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(15)),
-      ),
-      builder: (context) {
-        return Material(
-          color: const Color(0xFF1A1A2E),
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            height: 160,
-            child: Column(
-              children: [
-                Text(
-                  widget.isEnglish ? 'Map Settings' : '지도 설정', 
-                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)
-                ),
-                const SizedBox(height: 15),
-                ListTile(
-                  leading: const Icon(Icons.map, color: Colors.cyanAccent),
-                  title: const Text('OpenStreetMap', style: TextStyle(color: Colors.white)),
-                  onTap: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    LatLng markerPoint = const LatLng(37.5665, 126.9780);
+    if (_gpsManager.routePoints.isNotEmpty) {
+      markerPoint = _gpsManager.routePoints.last;
+    } else if (_currentPosition != null) {
+      markerPoint = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text('${widget.mode} ${widget.isEnglish ? 'Tracking' : '기록'}'),
@@ -284,9 +269,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
             FlutterMap(
               mapController: _mapController,
               options: MapOptions(
-                initialCenter: _currentPosition != null 
-                    ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
-                    : const LatLng(37.5665, 126.9780),
+                initialCenter: markerPoint,
                 initialZoom: 16.0,
               ),
               children: [
@@ -305,21 +288,18 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     ),
                   ],
                 ),
-                if (_currentPosition != null)
-                  MarkerLayer(
-                    markers: [
-                      Marker(
-                        point: _gpsManager.routePoints.isNotEmpty 
-                            ? _gpsManager.routePoints.last 
-                            : LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-                        child: const Icon(Icons.location_on, color: Colors.red, size: 40),
-                      ),
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: markerPoint,
+                      child: const Icon(Icons.location_on, color: Colors.red, size: 40),
+                    ),
                   ],
                 ),
               ],
             ),
 
-            // 2. 상단 상태바
+            // 2. 상단 상태바 (실시간 값 매핑 보완)
             Positioned(
               top: 10,
               left: 10,
