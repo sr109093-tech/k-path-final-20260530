@@ -1,0 +1,52 @@
+name: my_gps_app
+description: "K-Path: 고정밀 GPS 트래킹 및 음성 안내 애플리케이션"
+publish_to: 'none'
+version: 1.4.2+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 🗺️ 지도 및 위치 관련
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.0
+  geolocator: ^10.1.0
+  geocoding: ^3.0.0
+
+  # 💾 데이터 저장 및 시간
+  shared_preferences: ^2.2.2
+  intl: ^0.19.0
+
+  # 📷 카메라 및 사진 저장
+  image_picker: ^1.0.7
+  gal: ^2.2.0
+
+  # 🗣️ 음성 안내 (TTS)
+  flutter_tts: ^3.8.5
+  path_provider: ^2.1.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  # 🛠️ 아이콘 생성 도구 추가 (새로 추가됨)
+  flutter_launcher_icons: "^0.13.1"
+
+flutter:
+  uses-material-design: true
+  
+  # 🖼️ 에셋 등록 (아이콘 이미지를 앱이 인식하도록 함)
+  assets:
+    - assets/icon/
+
+# 🚀 앱 아이콘 상세 설정 (Soft K & Path 로고 적용)
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  # 안드로이드 8.0 이상을 위한 적응형 배경색 (로고와 어울리는 짙은 남색)
+  adaptive_icon_background: "#003366"
+  adaptive_icon_foreground: "assets/icon/app_icon.png"
