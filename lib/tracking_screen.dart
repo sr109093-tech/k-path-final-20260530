@@ -5,8 +5,9 @@ import 'dart:io';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart'; // 🔗 위치 이름을 한글 주소로 바꾸는 도구
-import 'package:image_picker/image_picker.dart';
+import 'package:geocoding/geocoding.dart'; 
+import 'package:image_picker/image_picker.dart'; 
+import 'package:flutter_tts/flutter_tts.dart'; // 🔗 독립형 오디오 TTS 엔진 연동
 import 'package:shared_preferences/shared_preferences.dart'; 
 import 'gps_manager.dart'; 
 
@@ -24,6 +25,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   final MapController _mapController = MapController();
   final ImagePicker _picker = ImagePicker();
   final GpsManager _gpsManager = GpsManager(); 
+  final FlutterTts _localTts = FlutterTts(); // 안전 구동을 위한 자체 TTS 객체
   
   bool _isTracking = false;
   Position? _currentPosition;
@@ -35,8 +37,18 @@ class _TrackingScreenState extends State<TrackingScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _gpsManager.initTts(widget.isEnglish); 
+      _initLocalTts(); 
       _initCurrentLocation();
     });
+  }
+
+  Future<void> _initLocalTts() async {
+    try {
+      await _localTts.setLanguage(widget.isEnglish ? "en-US" : "ko-KR");
+      await _localTts.setSpeechRate(0.5); 
+    } catch (e) {
+      debugPrint("로컬 TTS 초기화 실패 방어: $e");
+    }
   }
 
   Future<bool> _checkAndRequestPermission() async {
@@ -137,18 +149,14 @@ class _TrackingScreenState extends State<TrackingScreen> {
     return gpx.toString();
   }
 
-  // 🛠️ [★문법 컴파일 에러 완전 해결]: 독립된 로케일 지정 기능 프로토콜 적용 완료
   Future<String> _getPlaceName() async {
     if (_gpsManager.routePoints.isEmpty) return widget.isEnglish ? "Route" : "주행지역";
     try {
-      // 🔒 함수 내부 매개변수가 아닌 시스템 전역 언어 상태를 한국어로 강제 주입 후 변환 실행
       await setLocaleIdentifier("ko_KR"); 
-      
       List<Placemark> placemarks = await placemarkFromCoordinates(
         _gpsManager.routePoints.last.latitude,
         _gpsManager.routePoints.last.longitude,
       );
-      
       if (placemarks.isNotEmpty) {
         Placemark place = placemarks.first;
         String locationName = (place.subLocality != null && place.subLocality!.isNotEmpty) 
@@ -166,6 +174,17 @@ class _TrackingScreenState extends State<TrackingScreen> {
     setState(() => _isTracking = false);
     _uiTimer?.cancel();
     
+    // 🎯 운동 종료 시 독립형 오디오 TTS 멘트 직접 재생
+    try {
+      String closingSpeech = widget.isEnglish 
+          ? "Workout finished. Excellent job today!" 
+          : "운동을 종료합니다. 수고하셨습니다.";
+          
+      await _localTts.speak(closingSpeech);
+    } catch (e) {
+      debugPrint("종료 로컬 TTS 가동 실패 방어: $e");
+    }
+
     try {
       String koreanMode = widget.mode;
       if (widget.mode == "Walking") koreanMode = "걷기";
@@ -211,6 +230,22 @@ class _TrackingScreenState extends State<TrackingScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
+  Future<void> _takeLivePhoto() async {
+    try {
+      final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
+      if (photo != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(widget.isEnglish ? "Photo captured successfully!" : "현장 사진이 정상적으로 촬영되었습니다!"),
+            backgroundColor: Colors.purple.shade700,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("카메라 하드웨어 구동 실패: $e");
+    }
+  }
+
   String _formatDuration(int totalSeconds) {
     int hours = totalSeconds ~/ 3600;
     int minutes = (totalSeconds % 3600) ~/ 60;
@@ -235,6 +270,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
       body: SizedBox.expand(
         child: Stack(
           children: [
+            // [위젯 1] 지도가 표출되는 메인 영역
             FlutterMap(
               mapController: _mapController,
               options: MapOptions(initialCenter: markerPoint, initialZoom: 16.0),
@@ -250,6 +286,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
               ],
             ),
 
+            // [위젯 2] 상단 반투명 보라색 실시간 운동 메터 상태바
             Positioned(
               top: 10, left: 10, right: 10,
               child: Container(
@@ -270,24 +307,38 @@ class _TrackingScreenState extends State<TrackingScreen> {
               ),
             ),
 
+            // [위젯 3] 우측 수직 플로팅 스위치 패널 (카메라 복원 완료)
             Positioned(
               right: 20, top: 110,
               child: Column(
                 children: [
-                  FloatingActionButton.small(heroTag: 'my_sat', onPressed: () => setState(() => _isSatelliteMode = !_isSatelliteMode), backgroundColor: _isSatelliteMode ? Colors.cyanAccent : Colors.white.withOpacity(0.8), child: Icon(Icons.layers, color: _isSatelliteMode ? Colors.black : Colors.black87)),
+                  FloatingActionButton.small(heroTag: 'my_sat_toggle', onPressed: () => setState(() => _isSatelliteMode = !_isSatelliteMode), backgroundColor: _isSatelliteMode ? Colors.cyanAccent : Colors.white.withOpacity(0.8), child: Icon(Icons.layers, color: _isSatelliteMode ? Colors.black : Colors.black87)),
                   const SizedBox(height: 10),
-                  FloatingActionButton.small(heroTag: 'my_loc_track', onPressed: _initCurrentLocation, backgroundColor: Colors.white.withOpacity(0.8), child: const Icon(Icons.my_location, color: Colors.blue)),
+                  FloatingActionButton.small(heroTag: 'my_loc_recenter', onPressed: _initCurrentLocation, backgroundColor: Colors.white.withOpacity(0.8), child: const Icon(Icons.my_location, color: Colors.blue)),
+                  const SizedBox(height: 10),
+                  FloatingActionButton.small(
+                    heroTag: 'kpath_camera_button', 
+                    onPressed: _takeLivePhoto, 
+                    backgroundColor: Colors.orangeAccent, 
+                    child: const Icon(Icons.camera_alt_rounded, color: Colors.black, size: 18)
+                  ),
                 ],
               ),
             ),
 
+            // [위젯 4] 최하단 운동 시작 / 종료 대형 제어 액션 버턴
             Positioned(
               bottom: 40, left: 0, right: 0,
               child: Center(
                 child: FloatingActionButton.extended(
                   onPressed: _toggleTracking,
                   backgroundColor: _isTracking ? Colors.orange : Colors.cyanAccent,
-                  label: Text(_isTracking ? (widget.isEnglish ? 'Pause' : '일시정지 / 종료') : (widget.isEnglish ? 'Start' : '트레킹 시작'), style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                  label: Text(
+                    _isTracking 
+                        ? (widget.isEnglish ? 'Pause' : '일시정지 / 종료') 
+                        : (widget.isEnglish ? 'Start' : '운동시작'), 
+                    style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)
+                  ),
                   icon: Icon(_isTracking ? Icons.pause : Icons.play_arrow, color: Colors.black),
                 ),
               ),
