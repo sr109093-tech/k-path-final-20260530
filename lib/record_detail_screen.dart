@@ -87,7 +87,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
     LatLng centerPoint = const LatLng(37.5665, 126.9780);
     if (_routePoints.isNotEmpty) centerPoint = _routePoints.first;
 
-    // 🛠️ [★해결 핵심 2]: 캐시 저장 타입 불일치 버그 전면 치료 (int/double 매핑 정렬)
+    // 🛠️ [★0점 박멸 핵심 교정]: 저장 데이터 키 형변환 매핑 규칙 절대 일치 완료!
     double distance = 0.0;
     if (widget.record['distance'] != null) {
       distance = (widget.record['distance'] as num).toDouble();
@@ -139,7 +139,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                   right: 15,
                   top: 15,
                   child: FloatingActionButton.small(
-                    heroTag: 'dt_map_sat',
+                    heroTag: 'dt_map_sat_view',
                     onPressed: () => setState(() => _isSatelliteMode = !_isSatelliteMode),
                     backgroundColor: _isSatelliteMode ? Colors.cyanAccent : Colors.white.withOpacity(0.8),
                     child: Icon(Icons.layers, color: _isSatelliteMode ? Colors.black : Colors.black87),
@@ -160,7 +160,6 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // 🔒 한글 커스텀 명칭이 그대로 다이렉트 표출됩니다.
                         Expanded(
                           child: Text(
                             widget.record['mode'] ?? 'Workout', 
