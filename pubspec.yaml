@@ -17,7 +17,9 @@ dependencies:
   image_picker: ^1.2.1
   path_provider: ^2.1.3
   share_plus: ^7.2.1
-  app_settings: ^5.1.1 # 🛠️ 스마트폰 실제 설정창을 강제 소환하는 특수 엔진 주입
+  app_settings: ^5.1.1
+  geocoding: ^3.0.0 # 🛠️ [★해결 핵심] 주소지 명칭 변환용 엔진 라이브러리 정식 등록 완료!
+  url_launcher: ^6.3.0 # 하단 날씨 및 두루누비 브라우저 딥링크용 도구
 
 dev_dependencies:
   flutter_test:

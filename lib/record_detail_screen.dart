@@ -54,8 +54,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
     try {
       final tempDir = await getTemporaryDirectory();
       final String safeDate = widget.record['date'].toString().replaceAll(RegExp(r'[:.]'), '-');
-      final String modeName = widget.record['mode'] ?? 'Workout';
-      final file = await File('${tempDir.path}/K-Path_${modeName}_$safeDate.gpx').create();
+      final file = await File('${tempDir.path}/K-Path_Export_$safeDate.gpx').create();
       await file.writeAsString(gpxString);
 
       if (mounted) {
@@ -88,10 +87,26 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
     LatLng centerPoint = const LatLng(37.5665, 126.9780);
     if (_routePoints.isNotEmpty) centerPoint = _routePoints.first;
 
-    double distance = (widget.record['distance'] as num?)?.toDouble() ?? 0.0;
-    int duration = (widget.record['duration'] as num?)?.toInt() ?? 0;
-    double avgSpeed = (widget.record['avgSpeed'] as num?)?.toDouble() ?? 0.0;
-    double calories = (widget.record['calories'] as num?)?.toDouble() ?? 0.0;
+    // 🛠️ [★해결 핵심 2]: 캐시 저장 타입 불일치 버그 전면 치료 (int/double 매핑 정렬)
+    double distance = 0.0;
+    if (widget.record['distance'] != null) {
+      distance = (widget.record['distance'] as num).toDouble();
+    }
+
+    int duration = 0;
+    if (widget.record['duration'] != null) {
+      duration = (widget.record['duration'] as num).toInt();
+    }
+
+    double avgSpeed = 0.0;
+    if (widget.record['avgSpeed'] != null) {
+      avgSpeed = (widget.record['avgSpeed'] as num).toDouble();
+    }
+
+    double calories = 0.0;
+    if (widget.record['calories'] != null) {
+      calories = (widget.record['calories'] as num).toDouble();
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -124,7 +139,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                   right: 15,
                   top: 15,
                   child: FloatingActionButton.small(
-                    heroTag: 'detail_map_type',
+                    heroTag: 'dt_map_sat',
                     onPressed: () => setState(() => _isSatelliteMode = !_isSatelliteMode),
                     backgroundColor: _isSatelliteMode ? Colors.cyanAccent : Colors.white.withOpacity(0.8),
                     child: Icon(Icons.layers, color: _isSatelliteMode ? Colors.black : Colors.black87),
@@ -133,7 +148,6 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
               ],
             ),
           ),
-          // 🛠️ [픽셀 깨짐 완전해결]: 여백 조율 및 무제한 스크롤(SingleChildScrollView) 처리로 대시보드 강제 안정화
           Expanded(
             flex: 2,
             child: Container(
@@ -146,8 +160,15 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(widget.record['mode'] ?? 'Workout', style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                        Text(_formatDate(widget.record['date'] ?? ''), style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                        // 🔒 한글 커스텀 명칭이 그대로 다이렉트 표출됩니다.
+                        Expanded(
+                          child: Text(
+                            widget.record['mode'] ?? 'Workout', 
+                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Text(_formatDate(widget.record['date'] ?? ''), style: const TextStyle(color: Colors.grey, fontSize: 12)),
                       ],
                     ),
                     const Divider(color: Colors.white12, height: 20),
@@ -155,7 +176,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       crossAxisCount: 2,
-                      childAspectRatio: 2.8, // 🛠️ 박스 비율을 늘려 글자 수용량 확대
+                      childAspectRatio: 2.8, 
                       mainAxisSpacing: 10,
                       crossAxisSpacing: 12,
                       children: [

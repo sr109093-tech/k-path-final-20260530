@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart'; // 🔗 위치 이름을 한글 주소로 바꾸는 도구
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart'; 
 import 'gps_manager.dart'; 
@@ -122,13 +123,13 @@ class _TrackingScreenState extends State<TrackingScreen> {
     );
   }
 
-  String _convertToGpx(List<LatLng> points, String mode) {
+  String _convertToGpx(List<LatLng> points, String customTitle) {
     String currentTime = DateTime.now().toUtc().toIso8601String();
     StringBuffer gpx = StringBuffer();
     gpx.writeln('<?xml version="1.0" encoding="UTF-8"?>');
     gpx.writeln('<gpx version="1.1" creator="K-Path" xmlns="http://www.topografix.com/GPX/1/1">');
     gpx.writeln('  <metadata><time>$currentTime</time></metadata>');
-    gpx.writeln('  <trk><name>K-Path_${mode}_Record</name><type>$mode</type><trkseg>');
+    gpx.writeln('  <trk><name>$customTitle</name><type>${widget.mode}</type><trkseg>');
     for (var pt in points) {
       gpx.writeln('      <trkpt lat="${pt.latitude}" lon="${pt.longitude}"></trkpt>');
     }
@@ -136,17 +137,54 @@ class _TrackingScreenState extends State<TrackingScreen> {
     return gpx.toString();
   }
 
+  // 🛠️ [★문법 컴파일 에러 완전 해결]: 독립된 로케일 지정 기능 프로토콜 적용 완료
+  Future<String> _getPlaceName() async {
+    if (_gpsManager.routePoints.isEmpty) return widget.isEnglish ? "Route" : "주행지역";
+    try {
+      // 🔒 함수 내부 매개변수가 아닌 시스템 전역 언어 상태를 한국어로 강제 주입 후 변환 실행
+      await setLocaleIdentifier("ko_KR"); 
+      
+      List<Placemark> placemarks = await placemarkFromCoordinates(
+        _gpsManager.routePoints.last.latitude,
+        _gpsManager.routePoints.last.longitude,
+      );
+      
+      if (placemarks.isNotEmpty) {
+        Placemark place = placemarks.first;
+        String locationName = (place.subLocality != null && place.subLocality!.isNotEmpty) 
+            ? place.subLocality! 
+            : (place.locality ?? "");
+        return locationName.isEmpty ? (widget.isEnglish ? "Park" : "공원부근") : locationName;
+      }
+    } catch (e) {
+      debugPrint("주소명 변환 실패: $e");
+    }
+    return widget.isEnglish ? "Park" : "공원부근";
+  }
+
   Future<void> _saveAndStopTracking() async {
     setState(() => _isTracking = false);
     _uiTimer?.cancel();
+    
     try {
-      String gpxData = _convertToGpx(_gpsManager.routePoints, widget.mode);
+      String koreanMode = widget.mode;
+      if (widget.mode == "Walking") koreanMode = "걷기";
+      else if (widget.mode == "Running") koreanMode = "달리기";
+      else if (widget.mode == "Cycling") koreanMode = "자전거";
+      else if (widget.mode == "Hiking") koreanMode = "등산";
+
+      DateTime now = DateTime.now();
+      String dateString = "${now.year}.${now.month.toString().padLeft(2, '0')}.${now.day.toString().padLeft(2, '0')}";
+      
+      String placeName = await _getPlaceName();
+      String customTitle = "$koreanMode $dateString $placeName";
+
+      String gpxData = _convertToGpx(_gpsManager.routePoints, customTitle);
       final String downloadPath = '/storage/emulated/0/Download';
       final Directory kpathDir = Directory('$downloadPath/k-path');
       if (!await kpathDir.exists()) await kpathDir.create(recursive: true);
 
-      DateTime now = DateTime.now();
-      String timestamp = "${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}";
+      String timestamp = "${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}";
       File gpxFile = File('${kpathDir.path}/K-Path_${widget.mode}_$timestamp.gpx');
       await gpxFile.writeAsString(gpxData);
 
@@ -155,9 +193,14 @@ class _TrackingScreenState extends State<TrackingScreen> {
       List<Map<String, double>> pointsJson = _gpsManager.routePoints.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList();
 
       Map<String, dynamic> newRecord = {
-        'date': DateTime.now().toIso8601String(), 'mode': widget.mode, 'distance': _gpsManager.dist,
-        'duration': _gpsManager.seconds, 'calories': _gpsManager.calories, 'avgSpeed': _gpsManager.avgSpeed,
-        'points': pointsJson, 'gpx_string': gpxData,
+        'date': DateTime.now().toIso8601String(), 
+        'mode': customTitle, 
+        'distance': _gpsManager.dist,
+        'duration': _gpsManager.seconds, 
+        'calories': _gpsManager.calories, 
+        'avgSpeed': _gpsManager.avgSpeed,
+        'points': pointsJson, 
+        'gpx_string': gpxData,
       };
       historyList.insert(0, jsonEncode(newRecord));
       await prefs.setStringList('workout_history', historyList);
@@ -181,8 +224,14 @@ class _TrackingScreenState extends State<TrackingScreen> {
     if (_gpsManager.routePoints.isNotEmpty) markerPoint = _gpsManager.routePoints.last;
     else if (_currentPosition != null) markerPoint = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
 
+    String displayName = widget.mode;
+    if (widget.mode == "Walking") displayName = widget.isEnglish ? "Walking" : "걷기";
+    else if (widget.mode == "Running") displayName = widget.isEnglish ? "Running" : "달리기";
+    else if (widget.mode == "Cycling") displayName = widget.isEnglish ? "Cycling" : "자전거";
+    else if (widget.mode == "Hiking") displayName = widget.isEnglish ? "Hiking" : "등산";
+
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.mode} ${widget.isEnglish ? 'Tracking' : '기록'}'), backgroundColor: const Color(0xFF1A1A2E)),
+      appBar: AppBar(title: Text('$displayName ${widget.isEnglish ? 'Tracking' : '기록'}'), backgroundColor: const Color(0xFF1A1A2E)),
       body: SizedBox.expand(
         child: Stack(
           children: [
@@ -201,13 +250,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
               ],
             ),
 
-            // 🎯 [선생님 지정 포인트]: 반투명 보라색 배경으로 갱신한 실시간 상태 정보 바 대시보드
             Positioned(
               top: 10, left: 10, right: 10,
               child: Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: Colors.purple.withOpacity(0.65), // 🔒 반투명 보라색 색상값 변경 처리
+                  color: Colors.purple.withOpacity(0.65), 
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.white24, width: 1),
                 ),
@@ -226,9 +274,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
               right: 20, top: 110,
               child: Column(
                 children: [
-                  FloatingActionButton.small(heroTag: 'm_type', onPressed: () => setState(() => _isSatelliteMode = !_isSatelliteMode), backgroundColor: _isSatelliteMode ? Colors.cyanAccent : Colors.white.withOpacity(0.8), child: Icon(Icons.layers, color: _isSatelliteMode ? Colors.black : Colors.black87)),
+                  FloatingActionButton.small(heroTag: 'my_sat', onPressed: () => setState(() => _isSatelliteMode = !_isSatelliteMode), backgroundColor: _isSatelliteMode ? Colors.cyanAccent : Colors.white.withOpacity(0.8), child: Icon(Icons.layers, color: _isSatelliteMode ? Colors.black : Colors.black87)),
                   const SizedBox(height: 10),
-                  FloatingActionButton.small(heroTag: 'my_l', onPressed: _initCurrentLocation, backgroundColor: Colors.white.withOpacity(0.8), child: const Icon(Icons.my_location, color: Colors.blue)),
+                  FloatingActionButton.small(heroTag: 'my_loc_track', onPressed: _initCurrentLocation, backgroundColor: Colors.white.withOpacity(0.8), child: const Icon(Icons.my_location, color: Colors.blue)),
                 ],
               ),
             ),

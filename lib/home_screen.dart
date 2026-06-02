@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart'; // 🔗 외부 날씨 및 사이트 링크 통로 도구
 import 'tracking_screen.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
@@ -29,6 +30,18 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  // 🛠️ [★해결 핵심 3]: 외부 아웃도어 사이트 및 날씨 정보 연동 브라우저 소환 헬퍼
+  Future<void> _launchExternalUrl(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    try {
+      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+        throw 'Could not launch $url';
+      }
+    } catch (e) {
+      debugPrint("링크 연결 실패: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -39,7 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. 상단 타이틀바 (우측에 톱니바퀴 설정 버튼 노출)
+              // 1. 상단 타이틀바
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -59,20 +72,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 30),
+              const SizedBox(height: 25),
 
-              // 2. 🎯 [선생님의 아이덴티티]: 4종목 한가운데 완벽하게 정렬된 누적 기록 원형 레이아웃
+              // 2. 중앙 4분할 격자 배치판 + 정중앙 누적 기록원
               Expanded(
+                flex: 5,
                 child: Stack(
                   children: [
-                    // 외곽 4분할 격자 배치판
                     GridView.count(
                       crossAxisCount: 2,
                       mainAxisSpacing: 20,
                       crossAxisSpacing: 20,
                       childAspectRatio: 1.0,
                       children: [
-                        // [1번 방: 걷기 - 빨강색 바탕]
                         _buildMenuCard(
                           icon: Icons.directions_walk_rounded,
                           title: _isEnglish ? "WALKING" : "걷기",
@@ -85,7 +97,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             );
                           },
                         ),
-                        // [2번 방: 달리기 - 파랑색 바탕]
                         _buildMenuCard(
                           icon: Icons.directions_run_rounded,
                           title: _isEnglish ? "RUNNING" : "달리기",
@@ -98,7 +109,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             );
                           },
                         ),
-                        // [3번 방: 자전거 - 노랑색 바탕]
                         _buildMenuCard(
                           icon: Icons.directions_bike_rounded,
                           title: _isEnglish ? "CYCLING" : "자전거",
@@ -111,7 +121,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             );
                           },
                         ),
-                        // [4번 방: 등산 - 녹색 바탕]
                         _buildMenuCard(
                           icon: Icons.terrain_rounded,
                           title: _isEnglish ? "HIKING" : "등산",
@@ -127,7 +136,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
 
-                    // 🎯 종목 정보 4개의 정중앙에 완벽하게 오버레이되는 [누적 기록] 센터 원
                     Align(
                       alignment: Alignment.center,
                       child: GestureDetector(
@@ -144,11 +152,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             color: const Color(0xFF1A1A32),
                             shape: BoxShape.circle,
                             boxShadow: [
-                              BoxShadow(
-                                color: Colors.cyanAccent.withOpacity(0.5),
-                                blurRadius: 20,
-                                spreadRadius: 4,
-                              )
+                              BoxShadow(color: Colors.cyanAccent.withOpacity(0.5), blurRadius: 20, spreadRadius: 4)
                             ],
                             border: Border.all(color: Colors.cyanAccent, width: 3),
                           ),
@@ -169,7 +173,68 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
+              
               const SizedBox(height: 20),
+
+              // 🛠️ [★해결 핵심 3]: 하단 자투리 공간에 배치한 두루누비 코스 탐방 및 기상청 날씨 조회 링크 바
+              Expanded(
+                flex: 1,
+                child: Row(
+                  children: [
+                    // 왼쪽: 두루누비 링크 배너
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => _launchExternalUrl("https://www.durunubi.kr/"),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1A1A32),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.cyanAccent.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.map_outlined, color: Colors.cyanAccent, size: 22),
+                              const SizedBox(width: 8),
+                              Text(
+                                _isEnglish ? "Durunubi Trail" : "두루누비 코스북",
+                                style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // 오른쪽: 기상청 실시간 기상 날씨정보 링크 배너
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => _launchExternalUrl("https://www.weather.go.kr/w/index.do"),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1A1A32),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.wb_sunny_outlined, color: Colors.orangeAccent, size: 22),
+                              const SizedBox(width: 8),
+                              Text(
+                                _isEnglish ? "Weather Info" : "기상청 실시간 날씨",
+                                style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
