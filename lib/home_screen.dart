@@ -1,8 +1,5 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import 'translations.dart';
 import 'tracking_screen.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
@@ -15,150 +12,199 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  double totalDist = 0.0;
-  int workoutCount = 0;
-  String? _profileImage;
-  String _currentUserId = 'guest';
+  bool _isEnglish = false;
+  String _userName = "강인구";
 
   @override
   void initState() {
     super.initState();
-    _refreshData();
+    _loadSettings();
   }
 
-  Future<void> _refreshData() async {
+  Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    AppText.lang = prefs.getString('lang') ?? 'ko';
-    _currentUserId = prefs.getString('user_id') ?? 'guest';
-    
-    List<String> history = prefs.getStringList('workouts_$_currentUserId') ?? [];
-    double distSum = 0.0;
-    for (var item in history) {
-      try {
-        final data = jsonDecode(item);
-        distSum += double.tryParse(data['distance'].toString()) ?? 0.0;
-      } catch (e) { continue; }
-    }
-
-    if (mounted) {
-      setState(() {
-        totalDist = distSum;
-        workoutCount = history.length;
-        _profileImage = prefs.getString('user_image');
-      });
-    }
+    setState(() {
+      _isEnglish = prefs.getBool('is_english') ?? false;
+      _userName = prefs.getString('user_name') ?? "강인구";
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    double topSpace = MediaQuery.of(context).padding.top;
-
     return Scaffold(
-      body: Stack(
-        children: [
-          Column(
+      backgroundColor: const Color(0xFF121224),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: Row(children: [
-                _buildQuadrant(context, AppText.get('walk'), Icons.directions_walk, const Color(0xFFE54D42)),
-                _buildQuadrant(context, AppText.get('hike'), Icons.terrain, const Color(0xFFF39C12)),
-              ])),
-              Expanded(child: Row(children: [
-                _buildQuadrant(context, AppText.get('bike'), Icons.directions_bike, const Color(0xFF9B59B6)),
-                _buildQuadrant(context, AppText.get('run'), Icons.directions_run, const Color(0xFF27AE60)),
-              ])),
-            ],
-          ),
-
-          Positioned(
-            top: topSpace + 10,
-            right: 15,
-            child: Row(
-              children: [
-                if (_profileImage != null)
-                  Container(
-                    width: 40, height: 40,
-                    margin: const EdgeInsets.only(right: 10),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                      image: DecorationImage(image: FileImage(File(_profileImage!)), fit: BoxFit.cover),
-                    ),
+              // 1. 상단 타이틀바 (우측에 톱니바퀴 설정 버튼 노출)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _isEnglish ? "Welcome, $_userName" : "반갑습니다, $_userName 님",
+                    style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
                   ),
-                IconButton(
-                  icon: const Icon(Icons.settings, color: Colors.white, size: 35),
-                  onPressed: () async {
-                    await Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-                    _refreshData();
-                  },
-                ),
-              ],
-            ),
-          ),
+                  IconButton(
+                    icon: const Icon(Icons.settings_rounded, color: Colors.cyanAccent, size: 28),
+                    onPressed: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => SettingsScreen(isEnglish: _isEnglish)),
+                      );
+                      _loadSettings();
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 30),
 
-          // 🏷️ 좌측 상단: 'K-Path'만 깔끔하게 표시
-          Positioned(
-            top: topSpace + 15,
-            left: 20,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(10)),
-                  child: Text(AppText.get('app_title'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-                ),
-                const SizedBox(height: 5),
-                Text("User: $_currentUserId", style: const TextStyle(color: Colors.white70, fontSize: 12)),
-              ],
-            ),
-          ),
-
-          Center(
-            child: GestureDetector(
-              onTap: () async {
-                await Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryScreen()));
-                _refreshData();
-              },
-              child: Container(
-                width: 180, height: 180,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 3),
-                  boxShadow: [const BoxShadow(color: Colors.black26, blurRadius: 15)],
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+              // 2. 🎯 [선생님의 아이덴티티]: 4종목 한가운데 완벽하게 정렬된 누적 기록 원형 레이아웃
+              Expanded(
+                child: Stack(
                   children: [
-                    Text("${totalDist.toStringAsFixed(1)}km", style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-                    Text("$workoutCount records", style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                    // 외곽 4분할 격자 배치판
+                    GridView.count(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 20,
+                      crossAxisSpacing: 20,
+                      childAspectRatio: 1.0,
+                      children: [
+                        // [1번 방: 걷기 - 빨강색 바탕]
+                        _buildMenuCard(
+                          icon: Icons.directions_walk_rounded,
+                          title: _isEnglish ? "WALKING" : "걷기",
+                          backgroundColor: Colors.red.shade900.withOpacity(0.85),
+                          iconColor: Colors.redAccent,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => TrackingScreen(mode: "Walking", isEnglish: _isEnglish)),
+                            );
+                          },
+                        ),
+                        // [2번 방: 달리기 - 파랑색 바탕]
+                        _buildMenuCard(
+                          icon: Icons.directions_run_rounded,
+                          title: _isEnglish ? "RUNNING" : "달리기",
+                          backgroundColor: Colors.blue.shade900.withOpacity(0.85),
+                          iconColor: Colors.blueAccent,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => TrackingScreen(mode: "Running", isEnglish: _isEnglish)),
+                            );
+                          },
+                        ),
+                        // [3번 방: 자전거 - 노랑색 바탕]
+                        _buildMenuCard(
+                          icon: Icons.directions_bike_rounded,
+                          title: _isEnglish ? "CYCLING" : "자전거",
+                          backgroundColor: Colors.amber.shade900.withOpacity(0.85),
+                          iconColor: Colors.amberAccent,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => TrackingScreen(mode: "Cycling", isEnglish: _isEnglish)),
+                            );
+                          },
+                        ),
+                        // [4번 방: 등산 - 녹색 바탕]
+                        _buildMenuCard(
+                          icon: Icons.terrain_rounded,
+                          title: _isEnglish ? "HIKING" : "등산",
+                          backgroundColor: Colors.green.shade900.withOpacity(0.85),
+                          iconColor: Colors.greenAccent,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => TrackingScreen(mode: "Hiking", isEnglish: _isEnglish)),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+
+                    // 🎯 종목 정보 4개의 정중앙에 완벽하게 오버레이되는 [누적 기록] 센터 원
+                    Align(
+                      alignment: Alignment.center,
+                      child: GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => HistoryScreen(isEnglish: _isEnglish)),
+                          );
+                        },
+                        child: Container(
+                          width: 110,
+                          height: 110,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1A1A32),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.cyanAccent.withOpacity(0.5),
+                                blurRadius: 20,
+                                spreadRadius: 4,
+                              )
+                            ],
+                            border: Border.all(color: Colors.cyanAccent, width: 3),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.history_toggle_off_rounded, color: Colors.cyanAccent, size: 34),
+                              const SizedBox(height: 6),
+                              Text(
+                                _isEnglish ? "HISTORY" : "누적 기록",
+                                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
-            ),
+              const SizedBox(height: 20),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildQuadrant(BuildContext context, String label, IconData icon, Color color) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: () async {
-          await Navigator.push(context, MaterialPageRoute(builder: (_) => TrackingScreen(mode: label, isEnglish: AppText.lang == 'en')));
-          _refreshData();
-        },
-        child: Container(
-          color: color,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: Colors.white, size: 100),
-              const SizedBox(height: 10),
-              Text(label, style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.bold)),
-            ],
-          ),
+  Widget _buildMenuCard({
+    required IconData icon,
+    required String title,
+    required Color backgroundColor,
+    required Color iconColor,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white24, width: 1.5),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: iconColor, size: 48),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, shadows: [
+                Shadow(color: Colors.black54, offset: Offset(1, 2), blurRadius: 4),
+              ]),
+            ),
+          ],
         ),
       ),
     );

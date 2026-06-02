@@ -1,80 +1,192 @@
-import 'dart:io';
-import 'dart:typed_data'; 
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:screenshot/screenshot.dart'; 
-import 'package:path_provider/path_provider.dart'; 
-import 'package:share_plus/share_plus.dart'; 
-import 'models/workout_model.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'dart:io';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
 
 class RecordDetailScreen extends StatefulWidget {
-  final WorkoutRecord record;
-  const RecordDetailScreen({super.key, required this.record});
+  final Map<String, dynamic> record;
+  final bool isEnglish;
+
+  const RecordDetailScreen({super.key, required this.record, required this.isEnglish});
+
   @override
   State<RecordDetailScreen> createState() => _RecordDetailScreenState();
 }
 
 class _RecordDetailScreenState extends State<RecordDetailScreen> {
-  final ScreenshotController _screenshotController = ScreenshotController();
-  final ImagePicker _picker = ImagePicker();
-  XFile? _bgPhoto; bool _showMap = true;
+  final MapController _mapController = MapController();
+  bool _isSatelliteMode = false;
+  List<LatLng> _routePoints = [];
 
-  Future<void> _share() async {
-    if (_bgPhoto == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('사진을 먼저 골라주세요!'))); return; }
-    showDialog(context: context, builder: (ctx) => const Center(child: CircularProgressIndicator()));
-    final Uint8List? image = await _screenshotController.capture();
-    Navigator.pop(context);
-    if (image != null) {
-      final dir = await getTemporaryDirectory();
-      final path = await File('${dir.path}/proof.png').create();
-      await path.writeAsBytes(image);
-      await Share.shareXFiles([XFile(path.path)], text: '오늘의 트레킹 인증샷! 🏆');
+  @override
+  void initState() {
+    super.initState();
+    _parseRoutePoints();
+  }
+
+  void _parseRoutePoints() {
+    try {
+      if (widget.record['points'] != null) {
+        final List<dynamic> pts = widget.record['points'];
+        final List<LatLng> tempPoints = [];
+        for (var p in pts) {
+          if (p != null && p['lat'] != null && p['lng'] != null) {
+            tempPoints.add(LatLng((p['lat'] as num).toDouble(), (p['lng'] as num).toDouble()));
+          }
+        }
+        setState(() => _routePoints = tempPoints);
+      }
+    } catch (e) {
+      debugPrint("🚨 좌표 파싱 에러 방어: $e");
+    }
+  }
+
+  Future<void> _exportGpxFile() async {
+    final String? gpxString = widget.record['gpx_string'];
+    if (gpxString == null || gpxString.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(widget.isEnglish ? 'No GPX data available.' : 'GPX 데이터 파일이 존재하지 않습니다.')));
+      }
+      return;
+    }
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final String safeDate = widget.record['date'].toString().replaceAll(RegExp(r'[:.]'), '-');
+      final String modeName = widget.record['mode'] ?? 'Workout';
+      final file = await File('${tempDir.path}/K-Path_${modeName}_$safeDate.gpx').create();
+      await file.writeAsString(gpxString);
+
+      if (mounted) {
+        final box = context.findRenderObject() as RenderBox?;
+        await Share.shareXFiles([XFile(file.path)], text: 'K-Path GPX File Export', sharePositionOrigin: box != null ? box.localToGlobal(Offset.zero) & box.size : null);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('GPX 내보내기 실패: $e')));
+    }
+  }
+
+  String _formatDuration(int totalSeconds) {
+    int hours = totalSeconds ~/ 3600;
+    int minutes = (totalSeconds % 3600) ~/ 60;
+    int seconds = totalSeconds % 60;
+    return "${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}";
+  }
+
+  String _formatDate(String isoString) {
+    try {
+      DateTime dt = DateTime.parse(isoString).toLocal();
+      return "${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    } catch (e) {
+      return isoString;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    bool hasData = widget.record.points.isNotEmpty;
+    LatLng centerPoint = const LatLng(37.5665, 126.9780);
+    if (_routePoints.isNotEmpty) centerPoint = _routePoints.first;
+
+    double distance = (widget.record['distance'] as num?)?.toDouble() ?? 0.0;
+    int duration = (widget.record['duration'] as num?)?.toInt() ?? 0;
+    double avgSpeed = (widget.record['avgSpeed'] as num?)?.toDouble() ?? 0.0;
+    double calories = (widget.record['calories'] as num?)?.toDouble() ?? 0.0;
+
     return Scaffold(
-      appBar: AppBar(title: const Text("인증샷 카드 만들기")),
-      body: Column(children: [
-        Expanded(flex: 1, child: hasData ? GoogleMap(initialCameraPosition: CameraPosition(target: widget.record.points.first, zoom: 15), polylines: {Polyline(polylineId: const PolylineId('r'), points: widget.record.points, color: Colors.red, width: 5)}) : const Center(child: Text("데이터 없음"))),
-        Container(padding: const EdgeInsets.symmetric(vertical: 15), color: Colors.grey[100], child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [_tool(Icons.photo_library, "사진 선택", () async { final p = await _picker.pickImage(source: ImageSource.gallery); if (p != null) setState(() => _bgPhoto = p); }), _tool(Icons.share, "인증샷 공유", _share)])),
-        Expanded(flex: 2, child: Screenshot(controller: _screenshotController, child: _buildCard(hasData))),
-      ]),
+      appBar: AppBar(
+        title: Text(widget.isEnglish ? 'Workout Detail' : '운동 기록 상세'),
+        backgroundColor: const Color(0xFF1A1A2E),
+        actions: [
+          IconButton(icon: const Icon(Icons.ios_share, color: Colors.cyanAccent), onPressed: _exportGpxFile),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            flex: 3,
+            child: Stack(
+              children: [
+                FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(initialCenter: centerPoint, initialZoom: 15.0),
+                  children: [
+                    TileLayer(
+                      urlTemplate: _isSatelliteMode
+                          ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                          : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.example.my_gps_app',
+                    ),
+                    if (_routePoints.isNotEmpty) PolylineLayer(polylines: [Polyline(points: _routePoints, strokeWidth: 5, color: Colors.cyanAccent)]),
+                  ],
+                ),
+                Positioned(
+                  right: 15,
+                  top: 15,
+                  child: FloatingActionButton.small(
+                    heroTag: 'detail_map_type',
+                    onPressed: () => setState(() => _isSatelliteMode = !_isSatelliteMode),
+                    backgroundColor: _isSatelliteMode ? Colors.cyanAccent : Colors.white.withOpacity(0.8),
+                    child: Icon(Icons.layers, color: _isSatelliteMode ? Colors.black : Colors.black87),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 🛠️ [픽셀 깨짐 완전해결]: 여백 조율 및 무제한 스크롤(SingleChildScrollView) 처리로 대시보드 강제 안정화
+          Expanded(
+            flex: 2,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+              decoration: const BoxDecoration(color: Color(0xFF121224)),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(widget.record['mode'] ?? 'Workout', style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                        Text(_formatDate(widget.record['date'] ?? ''), style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                      ],
+                    ),
+                    const Divider(color: Colors.white12, height: 20),
+                    GridView.count(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: 2,
+                      childAspectRatio: 2.8, // 🛠️ 박스 비율을 늘려 글자 수용량 확대
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 12,
+                      children: [
+                        _buildStatBox(widget.isEnglish ? 'Distance' : '누적 거리', "${distance.toStringAsFixed(2)} km"),
+                        _buildStatBox(widget.isEnglish ? 'Duration' : '운동 시간', _formatDuration(duration)),
+                        _buildStatBox(widget.isEnglish ? 'Avg Speed' : '평균 속도', "${avgSpeed.toStringAsFixed(1)} km/h"),
+                        _buildStatBox(widget.isEnglish ? 'Calories' : '소모 열량', "${calories.toStringAsFixed(0)} kcal"),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildCard(bool hasData) => Container(width: double.infinity, color: Colors.blueGrey[100], child: Stack(children: [
-    if (_bgPhoto != null) Positioned.fill(child: Image.file(File(_bgPhoto!.path), fit: BoxFit.cover)),
-    Positioned(top: 20, left: 20, child: Text(widget.record.date, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 10)]))),
-    if (_showMap && hasData) Positioned(top: 20, right: 20, width: 120, height: 120, child: Container(color: Colors.white70, child: CustomPaint(painter: _Painter(widget.record.points)))),
-    Positioned(bottom: 30, left: 20, right: 20, child: Container(padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(15)), child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [Text("거리: ${widget.record.distance}km", style: const TextStyle(color: Colors.white)), Text("시간: ${widget.record.time}", style: const TextStyle(color: Colors.white))]))),
-  ]));
-  Widget _tool(IconData i, String l, VoidCallback o) => InkWell(onTap: o, child: Column(children: [Icon(i, size: 30), Text(l)]));
-}
-
-class _Painter extends CustomPainter {
-  final List<LatLng> pts; _Painter(this.pts);
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (pts.isEmpty) return;
-    final paint = Paint()..color = Colors.blue..strokeWidth = 3..style = PaintingStyle.stroke;
-    final path = Path();
-    double minLat = pts[0].latitude; double maxLat = pts[0].latitude;
-    double minLon = pts[0].longitude; double maxLon = pts[0].longitude;
-    for (var p in pts) {
-      if (p.latitude < minLat) minLat = p.latitude; if (p.latitude > maxLat) maxLat = p.latitude;
-      if (p.longitude < minLon) minLon = p.longitude; if (p.longitude > maxLon) maxLon = p.longitude;
-    }
-    for (int i = 0; i < pts.length; i++) {
-      double x = (pts[i].longitude - minLon) / (maxLon - minLon == 0 ? 1 : maxLon - minLon) * size.width;
-      double y = size.height - ((pts[i].latitude - minLat) / (maxLat - minLat == 0 ? 1 : maxLat - minLat) * size.height);
-      if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
-    }
-    canvas.drawPath(path, paint);
+  Widget _buildStatBox(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(color: const Color(0xFF1A1A30), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.white12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+          Text(value, style: const TextStyle(color: Colors.cyanAccent, fontSize: 15, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    );
   }
-  @override
-  bool shouldRepaint(CustomPainter old) => false;
 }

@@ -1,120 +1,174 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'setting_screen.dart';
 import 'tracking_screen.dart';
 import 'history_screen.dart';
+import 'settings_screen.dart';
 
 class ModeSelectionScreen extends StatefulWidget {
-  const ModeSelectionScreen({super.key});
+  final bool isEnglish;
+
+  const ModeSelectionScreen({
+    super.key, 
+    required this.isEnglish,
+  });
+
   @override
   State<ModeSelectionScreen> createState() => _ModeSelectionScreenState();
 }
 
 class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
-  String _lang = '한국어';
-  String _totalDist = "0.00";
-  int _workoutCount = 0;
-  String? _profilePath;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
-
-  void _loadData() async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> records = prefs.getStringList('workouts') ?? [];
-    setState(() {
-      _lang = prefs.getString('language') ?? '한국어';
-      _totalDist = prefs.getString('total_distance') ?? "0.00";
-      _workoutCount = records.length; // ✅ 누적 운동 횟수
-      _profilePath = prefs.getString('userProfilePath'); // ✅ 사용자 사진
-    });
+  void _loadData() {
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    bool isEn = _lang == 'English';
     return Scaffold(
+      backgroundColor: const Color(0xFF121224),
+      appBar: AppBar(
+        title: Text(widget.isEnglish ? "Select Mode" : "운동 모드 선택"),
+        backgroundColor: const Color(0xFF1A1A2E),
+        elevation: 0,
+        centerTitle: true,
+      ),
       body: SafeArea(
-        child: Stack(
-          children: [
-            // 📊 4분할 레이아웃
-            Column(
-              children: [
-                Expanded(child: Row(children: [_tile(context, isEn ? 'Walking' : '걷기', const Color(0xFF1976D2), Icons.directions_walk, isEn), _tile(context, isEn ? 'Hiking' : '등산', const Color(0xFFD32F2F), Icons.terrain, isEn)])),
-                Expanded(child: Row(children: [_tile(context, isEn ? 'Running' : '달리기', const Color(0xFF7B1FA2), Icons.directions_run, isEn), _tile(context, isEn ? 'Cycling' : '자전거', const Color(0xFFEF6C00), Icons.directions_bike, isEn)])),
-              ],
-            ),
-            
-            // ⚪ [수정] 중앙 원: 날씨, 거리, 횟수 통합
-            Center(
-              child: GestureDetector(
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (c) => const HistoryScreen())).then((_) => _loadData()),
-                child: Container(
-                  width: 175, height: 175,
-                  decoration: BoxDecoration(
-                    color: Colors.white, shape: BoxShape.circle, 
-                    border: Border.all(color: const Color(0xFFFFBF00), width: 8),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 15, spreadRadius: 2)]
-                  ),
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Stack( // 🛠️ Expanded 충돌을 피하기 위해 확실한 위치 레이아웃인 Stack 구조로 전면 개정
+            children: [
+              // 중앙 운동 종목 콘텐츠 배치 영역
+              Align(
+                alignment: Alignment.topCenter,
+                child: SingleChildScrollView(
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.wb_sunny, size: 16, color: Colors.orange), SizedBox(width: 4), Text("22°C", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold))]),
-                      const SizedBox(height: 8),
-                      Text("$_totalDist km", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 26, color: Color(0xFFB8860B))),
-                      const SizedBox(height: 5),
-                      Text(isEn ? '$_workoutCount Workouts' : '누적 $_workoutCount회', style: const TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 20),
+                      Text(
+                        widget.isEnglish ? "Choose your activity" : "원하시는 운동 종목을 선택하세요",
+                        style: const TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 35),
+                      _buildModeButton(
+                        context, 
+                        icon: Icons.directions_walk_rounded, 
+                        title: widget.isEnglish ? "Walking" : "걷기", 
+                        modeKey: "Walking"
+                      ),
+                      const SizedBox(height: 16),
+                      _buildModeButton(
+                        context, 
+                        icon: Icons.directions_run_rounded, 
+                        title: widget.isEnglish ? "Running" : "달리기", 
+                        modeKey: "Running"
+                      ),
+                      const SizedBox(height: 16),
+                      _buildModeButton(
+                        context, 
+                        icon: Icons.directions_bike_rounded, 
+                        title: widget.isEnglish ? "Cycling" : "자전거", 
+                        modeKey: "Cycling"
+                      ),
                     ],
                   ),
                 ),
               ),
-            ),
-            
-            // 🌤 좌측 상단 날씨 요약
-            Positioned(top: 25, left: 20, child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(15)), child: const Text("맑음", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))),
 
-            // ⚙ [수정] 우측 상단 사용자 사진 + 설정 아이콘
-            Positioned(
-              top: 15, right: 15, 
-              child: Row(
-                children: [
-                  // ✅ 사용자 프로필 사진 (설정 버튼과 같은 크기)
-                  Container(
-                    width: 45, height: 45,
-                    decoration: BoxDecoration(
-                      color: Colors.white24, shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                      image: _profilePath != null ? DecorationImage(image: FileImage(File(_profilePath!)), fit: BoxFit.cover) : null,
-                    ),
-                    child: _profilePath == null ? const Icon(Icons.person, color: Colors.white) : null,
+              // 하단 듀얼 탭 고정 레이어 (마진 꼬임 방지 락 장치)
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Container(
+                  width: double.infinity,
+                  height: 60,
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A1A32),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: Colors.white12),
                   ),
-                  const SizedBox(width: 10),
-                  // 설정 아이콘
-                  Container(
-                    width: 45, height: 45,
-                    decoration: const BoxDecoration(color: Colors.black26, shape: BoxShape.circle),
-                    child: IconButton(icon: const Icon(Icons.settings, size: 28, color: Colors.white), onPressed: () async {
-                      await Navigator.push(context, MaterialPageRoute(builder: (c) => const SettingScreen()));
-                      _loadData();
-                    }),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextButton.icon(
+                          icon: const Icon(Icons.history_rounded, color: Colors.cyanAccent),
+                          label: Text(
+                            widget.isEnglish ? "History" : "기록보기", 
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
+                          ),
+                          onPressed: () {
+                            Navigator.push(
+                              context, 
+                              MaterialPageRoute(builder: (c) => HistoryScreen(isEnglish: widget.isEnglish))
+                            ).then((_) => _loadData());
+                          },
+                        ),
+                      ),
+                      Container(width: 1, height: 24, color: Colors.white12),
+                      Expanded(
+                        child: TextButton.icon(
+                          icon: const Icon(Icons.tune_rounded, color: Colors.orangeAccent),
+                          label: Text(
+                            widget.isEnglish ? "Settings" : "설정변경", 
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
+                          ),
+                          onPressed: () async {
+                            await Navigator.push(
+                              context, 
+                              MaterialPageRoute(builder: (c) => SettingsScreen(isEnglish: widget.isEnglish))
+                            );
+                            _loadData();
+                          },
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _tile(BuildContext context, String title, Color color, IconData icon, bool isEn) => Expanded(
-    child: GestureDetector(
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (c) => TrackingScreen(mode: title, isEnglish: isEn))).then((_) => _loadData()),
-      child: Container(color: color, child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, size: 60, color: Colors.white70), const SizedBox(height: 10), Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white))])),
-    ),
-  );
+  Widget _buildModeButton(BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String modeKey,
+  }) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => TrackingScreen(
+              mode: modeKey,
+              isEnglish: widget.isEnglish,
+            ),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(15),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1A32),
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.cyanAccent, size: 30),
+            const SizedBox(width: 16),
+            Text(
+              title,
+              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const Spacer(),
+            const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
 }
