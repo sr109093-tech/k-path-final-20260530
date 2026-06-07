@@ -43,9 +43,45 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
   }
 
+  // 🛠️ [★기능 보강 핵심 2]: 꼬인 기록만 골라내어 부분 타격 처리하는 개별 레코드 파쇄 엔진
+  Future<void> _deleteOneRecord(int index) async {
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: Text(widget.isEnglish ? "Delete Record" : "개별 운동기록 삭제", style: const TextStyle(color: Colors.white)),
+        content: Text(
+          widget.isEnglish 
+              ? "Do you want to delete this specific workout?" 
+              : "선택하신 개별 운동 주행 기록을 장부에서 영구히 삭제하시겠습니까?", 
+          style: const TextStyle(color: Colors.white70)
+        ),
+        actions: [
+          TextButton(child: Text(widget.isEnglish ? "Cancel" : "취소"), onPressed: () => Navigator.pop(context, false)),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: Text(widget.isEnglish ? "Delete" : "삭제"),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final prefs = await SharedPreferences.getInstance();
+      List<String> historyList = prefs.getStringList('workout_history') ?? [];
+      
+      // 인덱스를 기반으로 특정 줄 데이터만 정확하게 척출 소거
+      if (index >= 0 && index < historyList.length) {
+        historyList.removeAt(index);
+        await prefs.setStringList('workout_history', historyList);
+        _loadHistoryRecords(); // 화면 리스트 갱신
+      }
+    }
+  }
+
   Future<void> _clearAllHistory() async {
     final prefs = await SharedPreferences.getInstance();
-    // 🛠️ [중요]: 꼬인 구형 0점짜리 이물질 데이터를 스마트폰 장부에서 깨끗이 청소하는 방어벽
     bool? confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -108,11 +144,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   itemBuilder: (context, index) {
                     final record = _historyRecords[index];
                     
-                    // 🎯 [요청사항 복원 핵심]: 고정된 영문 WALKING 대신 장부에 이쁘게 작명된 한국어 타이틀 추출
                     String recordTitle = record['mode'] ?? (widget.isEnglish ? "Workout" : "기록 주행");
                     String recordDate = record['date'] != null ? _formatDate(record['date']) : "";
                     
-                    // 서브 가이드에 매칭될 실물 배보된 GPX 파일 이름 가이드 추출
                     String safeDate = recordDate.replaceAll(RegExp(r'[-시작: ]'), '');
                     String subGpxName = "K-Path_Record_$safeDate.gpx";
 
@@ -122,14 +156,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                       borderOnForeground: false,
                       child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         leading: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: const BoxDecoration(color: Color(0xFF121224), shape: BoxShape.circle),
-                          child: const Icon(Icons.directions_run_rounded, color: Colors.cyanAccent, size: 28),
+                          child: const Icon(Icons.directions_run_rounded, color: Colors.cyanAccent, size: 26),
                         ),
                         title: Text(
-                          recordTitle, // 🔒 "걷기 2026.06.03 방이동" 형태로 가변 반영 완료!
+                          recordTitle, 
                           style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                         ),
                         subtitle: Column(
@@ -141,7 +175,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             Text(subGpxName, style: const TextStyle(color: Colors.white30, fontSize: 11)),
                           ],
                         ),
-                        trailing: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white24, size: 16),
+                        // 🛠️ [★기능 보강 핵심 2]: 리스트 개별 항목 오른쪽에 쓰레기통 버튼 정렬 이식 완결!
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 22),
+                              onPressed: () => _deleteOneRecord(index), // 요소를 지명하여 파괴 유도
+                            ),
+                            const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white24, size: 14),
+                          ],
+                        ),
                         onTap: () {
                           Navigator.push(
                             context,

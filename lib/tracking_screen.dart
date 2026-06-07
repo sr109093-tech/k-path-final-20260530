@@ -7,15 +7,21 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart'; 
 import 'package:image_picker/image_picker.dart'; 
-import 'package:flutter_tts/flutter_tts.dart'; // 🔗 독립형 오디오 TTS 엔진 연동
+import 'package:flutter_tts/flutter_tts.dart'; 
 import 'package:shared_preferences/shared_preferences.dart'; 
 import 'gps_manager.dart'; 
 
 class TrackingScreen extends StatefulWidget {
   final String mode;
   final bool isEnglish;
+  final bool autoRecover; 
 
-  const TrackingScreen({super.key, required this.mode, required this.isEnglish});
+  const TrackingScreen({
+    super.key, 
+    required this.mode, 
+    required this.isEnglish, 
+    this.autoRecover = false
+  });
 
   @override
   State<TrackingScreen> createState() => _TrackingScreenState();
@@ -25,7 +31,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   final MapController _mapController = MapController();
   final ImagePicker _picker = ImagePicker();
   final GpsManager _gpsManager = GpsManager(); 
-  final FlutterTts _localTts = FlutterTts(); // 안전 구동을 위한 자체 TTS 객체
+  final FlutterTts _localTts = FlutterTts(); 
   
   bool _isTracking = false;
   Position? _currentPosition;
@@ -44,8 +50,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
   Future<void> _initLocalTts() async {
     try {
+      final prefs = await SharedPreferences.getInstance();
+      double volume = prefs.getDouble('speech_volume') ?? 1.0; 
+
       await _localTts.setLanguage(widget.isEnglish ? "en-US" : "ko-KR");
       await _localTts.setSpeechRate(0.5); 
+      await _localTts.setVolume(volume); 
     } catch (e) {
       debugPrint("로컬 TTS 초기화 실패 방어: $e");
     }
@@ -77,43 +87,131 @@ class _TrackingScreenState extends State<TrackingScreen> {
     }
   }
 
-  void _toggleTracking() async {
+  void _handleStartButtonPress() async {
     if (_isTracking) {
       _showExitConfirmation();
     } else {
-      bool hasPermission = await _checkAndRequestPermission();
-      if (!hasPermission) return;
-      try {
-        Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final prefs = await SharedPreferences.getInstance();
+      final bool hasCrashData = prefs.getBool('crash_is_tracking') ?? false;
+
+      if (hasCrashData && mounted) {
+        _showRecoverSelectionDialog();
+      } else {
+        _startFreshTracking();
+      }
+    }
+  }
+
+  void _showRecoverSelectionDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: Text(widget.isEnglish ? "Resume Option" : "이전 기록 발견", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Text(
+          widget.isEnglish 
+              ? "An incomplete workout record was found. Would you like to resume writing or start a fresh one?" 
+              : "비정상적으로 종료된 이전 운동 데이터가 존재합니다.\n이어서 계속 작성하시겠습니까, 아니면 새로 시작하시겠습니까?", 
+          style: const TextStyle(color: Colors.white70, fontSize: 14)
+        ),
+        actions: [
+          TextButton(
+            child: Text(widget.isEnglish ? "Start Fresh" : "새로 시작", style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            onPressed: () async {
+              Navigator.pop(context);
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('crash_is_tracking', false); 
+              _startFreshTracking(); 
+            },
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent),
+            child: Text(widget.isEnglish ? "Resume" : "이어쓰기", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            onPressed: () async {
+              Navigator.pop(context);
+              _recoverPreviousTrackingSession(); 
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _startFreshTracking() async {
+    bool hasPermission = await _checkAndRequestPermission();
+    if (!hasPermission) return;
+    try {
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      setState(() {
+        _isTracking = true;
+        _currentPosition = position;
+      });
+
+      _startGpsTrackingEngine();
+      _mapController.move(LatLng(position.latitude, position.longitude), 16.0);
+    } catch (e) {
+      debugPrint("기본 주행 시동 실패: $e");
+    }
+  }
+
+  void _recoverPreviousTrackingSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? rawPoints = prefs.getString('crash_points');
+      if (rawPoints != null) {
+        final List<dynamic> decoded = jsonDecode(rawPoints);
+        final List<LatLng> recoveredPoints = decoded.map((e) => LatLng(e['lat'], e['lng'])).toList();
+        
         setState(() {
+          _gpsManager.routePoints.clear();
+          _gpsManager.routePoints.addAll(recoveredPoints);
+          _gpsManager.dist = prefs.getDouble('crash_dist') ?? 0.0;
+          _gpsManager.seconds = prefs.getInt('crash_seconds') ?? 0;
           _isTracking = true;
-          _currentPosition = position;
         });
 
-        _gpsManager.start(widget.isEnglish, () {
-          if (mounted) {
-            setState(() {
-              if (_gpsManager.routePoints.isNotEmpty) {
-                _currentPosition = Position(
-                  latitude: _gpsManager.routePoints.last.latitude,
-                  longitude: _gpsManager.routePoints.last.longitude,
-                  timestamp: DateTime.now(),
-                  accuracy: 0.0, altitude: 0.0, altitudeAccuracy: 0.0, heading: 0.0, headingAccuracy: 0.0,
-                  speed: _gpsManager.speed / 3.6, speedAccuracy: 0.0,
-                );
-              }
-            });
+        _startGpsTrackingEngine();
+        
+        if (_gpsManager.routePoints.isNotEmpty) {
+          _mapController.move(_gpsManager.routePoints.last, 16.0);
+        }
+      }
+    } catch (e) {
+      debugPrint("이어쓰기 블랙박스 디코딩 에러: $e");
+    }
+  }
+
+  void _startGpsTrackingEngine() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('crash_is_tracking', true);
+    await prefs.setString('crash_mode', widget.mode);
+
+    _gpsManager.start(widget.isEnglish, () async {
+      if (mounted) {
+        setState(() {
+          if (_gpsManager.routePoints.isNotEmpty) {
+            _currentPosition = Position(
+              latitude: _gpsManager.routePoints.last.latitude,
+              longitude: _gpsManager.routePoints.last.longitude,
+              timestamp: DateTime.now(),
+              accuracy: 0.0, altitude: 0.0, altitudeAccuracy: 0.0, heading: 0.0, headingAccuracy: 0.0,
+              speed: _gpsManager.speed / 3.6, speedAccuracy: 0.0,
+            );
           }
         });
 
-        _uiTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-          if (mounted && _isTracking) setState(() {});
-        });
-        _mapController.move(LatLng(position.latitude, position.longitude), 16.0);
-      } catch (e) {
-        debugPrint("트래킹 시작 지점 오류: $e");
+        final List<Map<String, double>> cacheJson = _gpsManager.routePoints.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList();
+        await prefs.setString('crash_points', jsonEncode(cacheJson));
+        await prefs.setDouble('crash_dist', _gpsManager.dist);
+        await prefs.setInt('crash_seconds', _gpsManager.seconds);
       }
-    }
+    });
+
+    _uiTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted && _isTracking) setState(() {});
+    });
   }
 
   void _showExitConfirmation() {
@@ -174,16 +272,28 @@ class _TrackingScreenState extends State<TrackingScreen> {
     setState(() => _isTracking = false);
     _uiTimer?.cancel();
     
-    // 🎯 운동 종료 시 독립형 오디오 TTS 멘트 직접 재생
-    try {
-      String closingSpeech = widget.isEnglish 
-          ? "Workout finished. Excellent job today!" 
-          : "운동을 종료합니다. 수고하셨습니다.";
-          
-      await _localTts.speak(closingSpeech);
-    } catch (e) {
-      debugPrint("종료 로컬 TTS 가동 실패 방어: $e");
+    final prefs = await SharedPreferences.getInstance();
+    final bool isSpeechEnabled = prefs.getBool('is_speech_enabled') ?? true; 
+
+    if (isSpeechEnabled) {
+      try {
+        double volume = prefs.getDouble('speech_volume') ?? 1.0;
+        await _localTts.setVolume(volume); 
+
+        String closingSpeech = widget.isEnglish 
+            ? "Workout finished. Excellent job today!" 
+            : "운동을 종료합니다. 수고하셨습니다.";
+            
+        await _localTts.speak(closingSpeech);
+      } catch (e) {
+        debugPrint("종료 로컬 TTS 가동 실패 방어: $e");
+      }
     }
+
+    await prefs.setBool('crash_is_tracking', false);
+    await prefs.remove('crash_points');
+    await prefs.remove('crash_dist');
+    await prefs.remove('crash_seconds');
 
     try {
       String koreanMode = widget.mode;
@@ -207,7 +317,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
       File gpxFile = File('${kpathDir.path}/K-Path_${widget.mode}_$timestamp.gpx');
       await gpxFile.writeAsString(gpxData);
 
-      final prefs = await SharedPreferences.getInstance();
       List<String> historyList = prefs.getStringList('workout_history') ?? [];
       List<Map<String, double>> pointsJson = _gpsManager.routePoints.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList();
 
@@ -230,6 +339,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
+  // 🛠️ [★결함 완치]: 아래 레이아웃에서 정상 호출할 수 있도록 실물 카메라 획득 알고리즘 완전 이식 복원!
   Future<void> _takeLivePhoto() async {
     try {
       final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
@@ -270,7 +380,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
       body: SizedBox.expand(
         child: Stack(
           children: [
-            // [위젯 1] 지도가 표출되는 메인 영역
             FlutterMap(
               mapController: _mapController,
               options: MapOptions(initialCenter: markerPoint, initialZoom: 16.0),
@@ -286,7 +395,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
               ],
             ),
 
-            // [위젯 2] 상단 반투명 보라색 실시간 운동 메터 상태바
             Positioned(
               top: 10, left: 10, right: 10,
               child: Container(
@@ -307,7 +415,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
               ),
             ),
 
-            // [위젯 3] 우측 수직 플로팅 스위치 패널 (카메라 복원 완료)
             Positioned(
               right: 20, top: 110,
               child: Column(
@@ -326,12 +433,11 @@ class _TrackingScreenState extends State<TrackingScreen> {
               ),
             ),
 
-            // [위젯 4] 최하단 운동 시작 / 종료 대형 제어 액션 버턴
             Positioned(
               bottom: 40, left: 0, right: 0,
               child: Center(
                 child: FloatingActionButton.extended(
-                  onPressed: _toggleTracking,
+                  onPressed: _handleStartButtonPress, 
                   backgroundColor: _isTracking ? Colors.orange : Colors.cyanAccent,
                   label: Text(
                     _isTracking 

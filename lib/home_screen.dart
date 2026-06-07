@@ -158,7 +158,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 flex: 5,
                 child: Stack(
                   children: [
-                    // [기반 레이어]: 4분할 격자판 (선생님 지정 부드러운 파스텔 소프트 톤 전면 개정)
+                    // [기반 레이어]: 4분할 격자판 (야외 시인성 극대화 화사한 파스텔 밝은색 테마)
                     GridView.count(
                       crossAxisCount: 2,
                       mainAxisSpacing: 20,
@@ -166,12 +166,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       childAspectRatio: 1.0,
                       physics: const NeverScrollableScrollPhysics(), 
                       children: [
-                        // 🛠️ 걷기 - 부드러운 주황색 (Soft Orange)
                         _buildMenuCard(
                           icon: Icons.directions_walk_rounded,
                           title: _isEnglish ? "WALKING" : "걷기",
-                          backgroundColor: const Color(0xFF4D382B), 
-                          iconColor: const Color(0xFFFFA726), 
+                          backgroundColor: const Color(0xFFFFE0B2), 
+                          iconColor: const Color(0xFFE65100), 
+                          textColor: const Color(0xFF5D4037),
                           onTap: () async {
                             await Navigator.push(
                               context,
@@ -180,12 +180,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             _loadSettingsAndHistory();
                           },
                         ),
-                        // 🛠️ 달리기 - 부드러운 파랑색 (Soft Blue)
                         _buildMenuCard(
                           icon: Icons.directions_run_rounded,
                           title: _isEnglish ? "RUNNING" : "달리기",
-                          backgroundColor: const Color(0xFF23354F), 
-                          iconColor: const Color(0xFF4FC3F7), 
+                          backgroundColor: const Color(0xFFB3E5FC), 
+                          iconColor: const Color(0xFF0288D1), 
+                          textColor: const Color(0xFF0D47A1),
                           onTap: () async {
                             await Navigator.push(
                               context,
@@ -194,12 +194,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             _loadSettingsAndHistory();
                           },
                         ),
-                        // 🛠️ 자전거 - 부드러운 노란색 (Soft Yellow)
                         _buildMenuCard(
                           icon: Icons.directions_bike_rounded,
                           title: _isEnglish ? "CYCLING" : "자전거",
-                          backgroundColor: const Color(0xFF4A442D), 
-                          iconColor: const Color(0xFFFFF176), 
+                          backgroundColor: const Color(0xFFFFF9C4), 
+                          iconColor: const Color(0xFFFBC02D), 
+                          textColor: const Color(0xFF4E342E),
                           onTap: () async {
                             await Navigator.push(
                               context,
@@ -208,12 +208,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             _loadSettingsAndHistory();
                           },
                         ),
-                        // 🛠️ 등산 - 부드러운 녹색 (Soft Green)
                         _buildMenuCard(
                           icon: Icons.terrain_rounded,
                           title: _isEnglish ? "HIKING" : "등산",
-                          backgroundColor: const Color(0xFF253B29), 
-                          iconColor: const Color(0xFF81C784), 
+                          backgroundColor: const Color(0xFFC8E6C9), 
+                          iconColor: const Color(0xFF388E3C), 
+                          textColor: const Color(0xFF1B5E20),
                           onTap: () async {
                             await Navigator.push(
                               context,
@@ -233,7 +233,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         onTap: () async {
                           await Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => HistoryScreen(isEnglish: _isEnglish)),
+                            MaterialPageRoute(
+                              builder: (_) => HistoryScreen(isEnglish: _isEnglish),
+                            ),
                           );
                           _loadSettingsAndHistory(); 
                         },
@@ -294,12 +296,12 @@ class _HomeScreenState extends State<HomeScreen> {
               
               const SizedBox(height: 15),
 
-              // 3. 🎯 [선생님 요청 반영 완료]: 깨짐 경고 박멸 및 반투명 보라색 배경을 적용한 날씨 전광판 배너
+              // 3. 반투명 보라색 배경 날씨 전광판 배너
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 decoration: BoxDecoration(
-                  color: Colors.purple.withOpacity(0.55), // 🔒 반투명 보라색 배경 가공 완료!
+                  color: Colors.purple.withOpacity(0.55), 
                   borderRadius: BorderRadius.circular(15),
                   border: Border.all(color: Colors.white24, width: 1.2),
                 ),
@@ -307,7 +309,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.orangeAccent, strokeWidth: 2)))
                     : Row(
                         children: [
-                          // 날씨 상태 픽토그램 단락
                           Expanded(
                             flex: 10,
                             child: Row(
@@ -323,7 +324,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                                 Container(width: 1, height: 14, color: Colors.white24),
                                 
-                                // 실시간 기온 단락
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -333,7 +333,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                                 Container(width: 1, height: 14, color: Colors.white24),
                                 
-                                // 미세먼지 등급 단락 (텍스트 크기를 최적화하여 픽셀 오버플로우 완전 방어)
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -358,7 +357,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                           
-                          // 새로고침 단추 공간 분리 보정
                           Expanded(
                             flex: 1,
                             child: InkWell(
@@ -441,6 +439,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String title,
     required Color backgroundColor,
     required Color iconColor,
+    required Color textColor,
     required VoidCallback onTap,
   }) {
     return InkWell(
@@ -450,17 +449,20 @@ class _HomeScreenState extends State<HomeScreen> {
         decoration: BoxDecoration(
           color: backgroundColor,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: Colors.white12, width: 1.5),
+          border: Border.all(color: Colors.white30, width: 1.5),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 6, offset: const Offset(0, 3))
+          ]
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: iconColor, size: 48),
-            const SizedBox(height: 12),
+            Icon(icon, color: iconColor, size: 52),
+            const SizedBox(height: 10),
             Text(
               title,
-              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, shadows: [
-                Shadow(color: Colors.black54, offset: Offset(1, 2), blurRadius: 4),
+              style: TextStyle(color: textColor, fontSize: 19, fontWeight: FontWeight.w900, shadows: const [
+                Shadow(color: Colors.white38, offset: Offset(0.5, 1), blurRadius: 1),
               ]),
             ),
           ],
