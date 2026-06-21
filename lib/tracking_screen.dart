@@ -9,6 +9,9 @@ import 'package:geocoding/geocoding.dart';
 import 'package:image_picker/image_picker.dart'; 
 import 'package:flutter_tts/flutter_tts.dart'; 
 import 'package:shared_preferences/shared_preferences.dart'; 
+import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart';
+import 'dart:ui' as ui;
 import 'gps_manager.dart'; 
 
 class TrackingScreen extends StatefulWidget {
@@ -32,6 +35,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
   final ImagePicker _picker = ImagePicker();
   final GpsManager _gpsManager = GpsManager(); 
   final FlutterTts _localTts = FlutterTts(); 
+  
+  final GlobalKey _globalKey = GlobalKey();
   
   bool _isTracking = false;
   Position? _currentPosition;
@@ -64,11 +69,17 @@ class _TrackingScreenState extends State<TrackingScreen> {
   Future<bool> _checkAndRequestPermission() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return false;
+    
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return false;
     }
+    
+    if (permission == LocationPermission.whileInUse) {
+      permission = await Geolocator.requestPermission();
+    }
+    
     if (permission == LocationPermission.deniedForever) return false;
     return true;
   }
@@ -188,6 +199,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     await prefs.setBool('crash_is_tracking', true);
     await prefs.setString('crash_mode', widget.mode);
 
+    // 🚀 [실시간 화면 매핑 동기화]: 하드웨어 센서 데이터를 받는 즉시 화면 UI를 강제로 다시 그려 멈춤을 방지합니다.
     _gpsManager.start(widget.isEnglish, () async {
       if (mounted) {
         setState(() {
@@ -199,6 +211,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
               accuracy: 0.0, altitude: 0.0, altitudeAccuracy: 0.0, heading: 0.0, headingAccuracy: 0.0,
               speed: _gpsManager.speed / 3.6, speedAccuracy: 0.0,
             );
+            _mapController.move(_gpsManager.routePoints.last, _mapController.camera.zoom);
           }
         });
 
@@ -339,7 +352,35 @@ class _TrackingScreenState extends State<TrackingScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
-  // 🛠️ [★결함 완치]: 아래 레이아웃에서 정상 호출할 수 있도록 실물 카메라 획득 알고리즘 완전 이식 복원!
+  Future<void> _captureScreenAndSave() async {
+    try {
+      RenderRepaintBoundary boundary = _globalKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      ui.Image image = await boundary.toImage(pixelRatio: 3.0); 
+      ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      Uint8List pngBytes = byteData!.buffer.asUint8List();
+
+      final String downloadPath = '/storage/emulated/0/Download';
+      final Directory kpathDir = Directory('$downloadPath/k-path/screenshots');
+      if (!await kpathDir.exists()) await kpathDir.create(recursive: true);
+
+      DateTime now = DateTime.now();
+      String timestamp = "${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}";
+      File imgFile = File('${kpathDir.path}/KPath_Capture_$timestamp.png');
+      await imgFile.writeAsBytes(pngBytes);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(widget.isEnglish ? "Map Screen captured & saved successfully!" : "지도 화면이 성공적으로 스크린 캡처되어 저장되었습니다!"),
+            backgroundColor: Colors.teal.shade700,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("정밀 스크린샷 캡처 엔진 충돌 방어: $e");
+    }
+  }
+
   Future<void> _takeLivePhoto() async {
     try {
       final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
@@ -376,80 +417,105 @@ class _TrackingScreenState extends State<TrackingScreen> {
     else if (widget.mode == "Hiking") displayName = widget.isEnglish ? "Hiking" : "등산";
 
     return Scaffold(
-      appBar: AppBar(title: Text('$displayName ${widget.isEnglish ? 'Tracking' : '기록'}'), backgroundColor: const Color(0xFF1A1A2E)),
-      body: SizedBox.expand(
-        child: Stack(
-          children: [
-            FlutterMap(
-              mapController: _mapController,
-              options: MapOptions(initialCenter: markerPoint, initialZoom: 16.0),
-              children: [
-                TileLayer(
-                  urlTemplate: _isSatelliteMode
-                      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-                      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.my_gps_app',
+      appBar: AppBar(
+        title: Text('$displayName ${widget.isEnglish ? 'Tracking' : '기록'}'), 
+        backgroundColor: const Color(0xFF1A1A2E),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.screenshot_monitor_rounded, color: Colors.cyanAccent), 
+            tooltip: widget.isEnglish ? 'Screen Capture' : '화면 스크린 캡처',
+            onPressed: _captureScreenAndSave, 
+          ),
+        ],
+      ),
+      body: RepaintBoundary(
+        key: _globalKey,
+        child: SizedBox.expand(
+          child: Stack(
+            children: [
+              FlutterMap(
+                mapController: _mapController,
+                options: MapOptions(
+                  initialCenter: markerPoint, 
+                  initialZoom: 16.0
                 ),
-                PolylineLayer(polylines: [Polyline(points: _gpsManager.routePoints, strokeWidth: 5, color: Colors.cyanAccent)]),
-                MarkerLayer(markers: [Marker(point: markerPoint, child: const Icon(Icons.location_on, color: Colors.red, size: 40))]),
-              ],
-            ),
+                children: [
+                  TileLayer(
+                    urlTemplate: _isSatelliteMode
+                        ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                        : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', 
+                    subdomains: const ['a', 'b', 'c'],
+                    userAgentPackageName: 'com.example.kpath',
+                  ),
+                  PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: _gpsManager.routePoints, 
+                        strokeWidth: 6, 
+                        color: Colors.blue.shade700
+                      )
+                    ]
+                  ),
+                  MarkerLayer(markers: [Marker(point: markerPoint, child: const Icon(Icons.location_on, color: Colors.red, size: 42))]),
+                ],
+              ),
 
-            Positioned(
-              top: 10, left: 10, right: 10,
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.purple.withOpacity(0.65), 
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white24, width: 1),
+              Positioned(
+                top: 10, left: 10, right: 10,
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A1A32).withOpacity(0.9), 
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.cyanAccent.withOpacity(0.4), width: 1),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildStatColumn(widget.isEnglish ? 'Dist' : '거리', "${_gpsManager.dist.toStringAsFixed(2)} km"),
+                      _buildStatColumn(widget.isEnglish ? 'Time' : '시간', _formatDuration(_gpsManager.seconds)),
+                      _buildStatColumn(widget.isEnglish ? 'Speed' : '속도', "${_gpsManager.speed.toStringAsFixed(1)} km/h"),
+                    ],
+                  ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+              ),
+
+              Positioned(
+                right: 20, top: 110,
+                child: Column(
                   children: [
-                    _buildStatColumn(widget.isEnglish ? 'Dist' : '거리', "${_gpsManager.dist.toStringAsFixed(2)} km"),
-                    _buildStatColumn(widget.isEnglish ? 'Time' : '시간', _formatDuration(_gpsManager.seconds)),
-                    _buildStatColumn(widget.isEnglish ? 'Speed' : '속도', "${_gpsManager.speed.toStringAsFixed(1)} km/h"),
+                    FloatingActionButton.small(heroTag: 'my_sat_toggle', onPressed: () => setState(() => _isSatelliteMode = !_isSatelliteMode), backgroundColor: _isSatelliteMode ? Colors.cyanAccent : Colors.white.withOpacity(0.9), child: Icon(Icons.layers, color: _isSatelliteMode ? Colors.black : Colors.black87)),
+                    const SizedBox(height: 10),
+                    FloatingActionButton.small(heroTag: 'my_loc_recenter', onPressed: _initCurrentLocation, backgroundColor: Colors.white.withOpacity(0.9), child: const Icon(Icons.my_location, color: Colors.blue)),
+                    const SizedBox(height: 10),
+                    FloatingActionButton.small(
+                      heroTag: 'kpath_camera_button', 
+                      onPressed: _takeLivePhoto, 
+                      backgroundColor: Colors.orangeAccent, 
+                      child: const Icon(Icons.camera_alt_rounded, color: Colors.black, size: 18)
+                    ),
                   ],
                 ),
               ),
-            ),
 
-            Positioned(
-              right: 20, top: 110,
-              child: Column(
-                children: [
-                  FloatingActionButton.small(heroTag: 'my_sat_toggle', onPressed: () => setState(() => _isSatelliteMode = !_isSatelliteMode), backgroundColor: _isSatelliteMode ? Colors.cyanAccent : Colors.white.withOpacity(0.8), child: Icon(Icons.layers, color: _isSatelliteMode ? Colors.black : Colors.black87)),
-                  const SizedBox(height: 10),
-                  FloatingActionButton.small(heroTag: 'my_loc_recenter', onPressed: _initCurrentLocation, backgroundColor: Colors.white.withOpacity(0.8), child: const Icon(Icons.my_location, color: Colors.blue)),
-                  const SizedBox(height: 10),
-                  FloatingActionButton.small(
-                    heroTag: 'kpath_camera_button', 
-                    onPressed: _takeLivePhoto, 
-                    backgroundColor: Colors.orangeAccent, 
-                    child: const Icon(Icons.camera_alt_rounded, color: Colors.black, size: 18)
+              Positioned(
+                bottom: 40, left: 0, right: 0,
+                child: Center(
+                  child: FloatingActionButton.extended(
+                    onPressed: _handleStartButtonPress, 
+                    backgroundColor: _isTracking ? Colors.orange : Colors.cyanAccent,
+                    label: Text(
+                      _isTracking 
+                          ? (widget.isEnglish ? 'Pause' : '일시정지 / 종료') 
+                          : (widget.isEnglish ? 'Start' : '운동시작'), 
+                      style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)
+                    ),
+                    icon: Icon(_isTracking ? Icons.pause : Icons.play_arrow, color: Colors.black),
                   ),
-                ],
-              ),
-            ),
-
-            Positioned(
-              bottom: 40, left: 0, right: 0,
-              child: Center(
-                child: FloatingActionButton.extended(
-                  onPressed: _handleStartButtonPress, 
-                  backgroundColor: _isTracking ? Colors.orange : Colors.cyanAccent,
-                  label: Text(
-                    _isTracking 
-                        ? (widget.isEnglish ? 'Pause' : '일시정지 / 종료') 
-                        : (widget.isEnglish ? 'Start' : '운동시작'), 
-                    style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)
-                  ),
-                  icon: Icon(_isTracking ? Icons.pause : Icons.play_arrow, color: Colors.black),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

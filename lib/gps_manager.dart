@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // 🔗 알림설정 장부 연동을 위한 라이브러리 결합
+import 'package:shared_preferences/shared_preferences.dart';
 
 class GpsManager {
   static final GpsManager _instance = GpsManager._internal();
@@ -31,13 +31,11 @@ class GpsManager {
     }
   }
 
-  // 🔒 [무음 보장 검문소 1]: 외부에서 종료 오디오 호출 시 알림 스위치 상태를 실시간 확인
   Future<void> speakRouteStatus(String message) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final bool isSpeechEnabled = prefs.getBool('is_speech_enabled') ?? true;
       
-      // 알림설정 스위치가 비활성화(false) 상태라면 아무 소리도 내지 않고 즉시 함수 파쇄 차단!
       if (!isSpeechEnabled) return;
 
       await flutterTts.speak(message);
@@ -46,6 +44,7 @@ class GpsManager {
     }
   }
 
+  // 🔒 [실시간 & 백그라운드 동시 인양 시동 기어]
   void start(bool isEnglish, VoidCallback onUpdate) {
     routePoints.clear();
     dist = 0.0;
@@ -57,25 +56,27 @@ class GpsManager {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       seconds++;
       _calculateCalories();
-      onUpdate();
+      onUpdate(); 
     });
 
+    // 🎯 [실시간 지연 원천 박멸]: 시스템 절전 Doze 모드를 완전히 깨부수기 위해 
+    // AndroidSettings 포그라운드 노티피케이션 옵션을 명확하게 활성화 결속합니다.
     final LocationSettings locationSettings = AndroidSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 2, 
-      forceLocationManager: true, 
-      intervalDuration: const Duration(seconds: 2), 
+      accuracy: LocationAccuracy.bestForNavigation, // 네비게이션급 최상위 위성 정밀도 가동
+      distanceFilter: 0, // 미세한 요동이나 1cm의 발걸음도 단 하나도 누락 없이 즉시 수집
+      forceLocationManager: true, // 구글 플레이 서비스 의존성을 우회하여 GPS 순수 하드웨어를 강제 구동
+      intervalDuration: const Duration(seconds: 1), // 1초 간격 실시간 무중단 동기화
+      foregroundNotificationConfig: const ForegroundNotificationConfig(
+        notificationText: "K-Path가 주행 경로를 끊김 없이 실시간 기록 중입니다.",
+        notificationTitle: "실시간 경로 추적 활성화",
+        enableWakeLock: true, // 화면이 꺼져도 CPU 프로세서가 잠들지 않도록 제어
+      ),
     );
 
     _positionStreamSubscription = Geolocator.getPositionStream(
       locationSettings: locationSettings
     ).listen((Position position) async {
       
-      if (position.accuracy > 18.0) {
-        debugPrint("🚨 도심지 불량 반사 신호 탐지 및 파쇄 (오차반경: ${position.accuracy}m) - 기록 스킵");
-        return; 
-      }
-
       LatLng newPoint = LatLng(position.latitude, position.longitude);
       speed = position.speed * 3.6; 
 
@@ -87,13 +88,7 @@ class GpsManager {
           newPoint.longitude,
         );
 
-        if (distanceInMeters > 25.0 && speed > 45.0) {
-          debugPrint("🚨 가짜 순간이동 신호 포착 및 제거 (이동거리: ${distanceInMeters}m) - 기록 스킵");
-          return;
-        }
-
-        // 🔒 [무음 보장 검문소 2]: 1km 마다 울리던 정기 오디오 음성 브리핑 연동 통제
-        // 현재 누적 거리가 소수점을 넘어 정수 단위로 변경되는 구간에서 알림설정이 꺼져있는지 안전 진단
+        // 1km 주기 안내 음성 브리핑 무음 연동 레이어 완벽 보존
         final int oldDistInt = dist.toInt();
         final int newDistInt = ((dist + (distanceInMeters / 1000.0))).toInt();
         
@@ -117,7 +112,7 @@ class GpsManager {
 
       routePoints.add(newPoint);
       avgSpeed = seconds > 0 ? (dist / (seconds / 3600.0)) : 0.0;
-      onUpdate();
+      onUpdate(); 
     });
   }
 
