@@ -1,37 +1,43 @@
-name: my_gps_app
-description: "K-Path GPS Tracking Application"
+name: kpath
+description: "K-Path: GPS Walking, Hiking, and Cycling Tracking Application with TTS"
 publish_to: 'none'
+
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.2.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
-  geolocator: ^10.1.1
-  latlong2: ^0.9.1
-  flutter_map: ^6.2.1
+  cupertino_icons: ^1.0.6
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.0
+  geolocator: ^11.0.0
+  geocoding: ^3.0.0
+  image_picker: ^1.0.7
   flutter_tts: ^3.8.5
-  shared_preferences: ^2.5.4
-  image_picker: ^1.2.1
-  path_provider: ^2.1.3
-  share_plus: ^7.2.1
-  app_settings: ^5.1.1
-  geocoding: ^3.0.0 # 🛠️ [★해결 핵심] 주소지 명칭 변환용 엔진 라이브러리 정식 등록 완료!
-  url_launcher: ^6.3.0 # 하단 날씨 및 두루누비 브라우저 딥링크용 도구
+  shared_preferences: ^2.2.2
+  path_provider: ^2.1.1
+  permission_handler: ^11.3.0
+  # 🛠️ [★누락 결함 완치 핵심]: 홈 화면 웹 링크 연동 및 GPX 기록 공유를 위한 정품 플러그인 재결합
+  url_launcher: ^6.2.5
+  share_plus: ^7.2.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.2
+  flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.13.1
 
 flutter_launcher_icons:
   android: "launcher_icon"
   image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
 
 flutter:
   uses-material-design: true
+
   assets:
-    - assets/icon/app_icon.png
+    - assets/
+    - assets/icon/
