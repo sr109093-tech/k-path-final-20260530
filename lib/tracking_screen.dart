@@ -12,6 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import 'dart:ui' as ui;
+// 🛠️ [★알림 잠금 강제 격파]: 스마트폰 시스템 내부의 굳어버린 알림 허용 스위치를 강제로 깨우는 전용 라이브러리 연동
+import 'package:permission_handler/permission_handler.dart';
 import 'gps_manager.dart'; 
 
 class TrackingScreen extends StatefulWidget {
@@ -66,7 +68,16 @@ class _TrackingScreenState extends State<TrackingScreen> {
     }
   }
 
+  // 🛠️ [★시스템 알림 강제 잠금해제 핵심부]
   Future<bool> _checkAndRequestPermission() async {
+    // 1. [안드로이드 전용 알림 권한 노크]: 굳어있는 알림 차단벽을 깨부수고 승인 팝업창을 화면에 강제로 띄웁니다.
+    if (Platform.isAndroid) {
+      final notificationStatus = await Permission.notification.status;
+      if (notificationStatus.isDenied || notificationStatus.isPermanentlyDenied) {
+        await Permission.notification.request();
+      }
+    }
+
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return false;
     
@@ -199,7 +210,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
     await prefs.setBool('crash_is_tracking', true);
     await prefs.setString('crash_mode', widget.mode);
 
-    // 🚀 [실시간 화면 매핑 동기화]: 하드웨어 센서 데이터를 받는 즉시 화면 UI를 강제로 다시 그려 멈춤을 방지합니다.
     _gpsManager.start(widget.isEnglish, () async {
       if (mounted) {
         setState(() {
@@ -284,7 +294,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   Future<void> _saveAndStopTracking() async {
     setState(() => _isTracking = false);
     _uiTimer?.cancel();
-    
+
     final prefs = await SharedPreferences.getInstance();
     final bool isSpeechEnabled = prefs.getBool('is_speech_enabled') ?? true; 
 
@@ -364,7 +374,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
       if (!await kpathDir.exists()) await kpathDir.create(recursive: true);
 
       DateTime now = DateTime.now();
-      String timestamp = "${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}";
+      String timestamp = "${now.year}${now.month.toString().padLeft(2, '0')}.${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}";
       File imgFile = File('${kpathDir.path}/KPath_Capture_$timestamp.png');
       await imgFile.writeAsBytes(pngBytes);
 
@@ -402,6 +412,64 @@ class _TrackingScreenState extends State<TrackingScreen> {
     int minutes = (totalSeconds % 3600) ~/ 60;
     int seconds = totalSeconds % 60;
     return "${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}";
+  }
+
+  List<Marker> _buildRouteMarkers(LatLng defaultCenter) {
+    List<Marker> markers = [];
+    
+    if (_gpsManager.routePoints.isEmpty) {
+      markers.add(Marker(point: defaultCenter, child: const Icon(Icons.location_on, color: Colors.red, size: 42)));
+      return markers;
+    }
+
+    markers.add(
+      Marker(
+        point: _gpsManager.routePoints.first,
+        width: 60, height: 60,
+        child: const Column(
+          children: [
+            Icon(Icons.play_circle_filled_rounded, color: Colors.greenAccent, size: 36),
+            Card(
+              color: Colors.black87,
+              margin: EdgeInsets.zero,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                child: Text('출발', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+
+    markers.add(
+      Marker(
+        point: _gpsManager.routePoints.last,
+        width: 60, height: 60,
+        child: Column(
+          children: [
+            Icon(
+              _isTracking ? Icons.my_location_rounded : Icons.stop_circle_rounded, 
+              color: _isTracking ? Colors.red : Colors.orangeAccent, 
+              size: 38
+            ),
+            Card(
+              color: Colors.black87,
+              margin: EdgeInsets.zero,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                child: Text(
+                  _isTracking ? '현재' : '도착', 
+                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)
+                ),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+
+    return markers;
   }
 
   @override
@@ -456,7 +524,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       )
                     ]
                   ),
-                  MarkerLayer(markers: [Marker(point: markerPoint, child: const Icon(Icons.location_on, color: Colors.red, size: 42))]),
+                  MarkerLayer(markers: _buildRouteMarkers(markerPoint)),
                 ],
               ),
 

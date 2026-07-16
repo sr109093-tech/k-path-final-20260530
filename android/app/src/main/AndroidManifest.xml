@@ -1,13 +1,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- 🌐 [K-Path 백그라운드 추적 구동을 위한 하드웨어 독점 권한 선언] -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- 주머니 속에서 화면이 꺼져도 GPS 안테나를 잠그지 않도록 통제하는 핵심 권한 -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    
+    <!-- 🔔 [★회색 자물쇠 격파 핵심 마킹]: 최신 안드로이드(Galaxy SM-G998N)에서 알림 허용 스위치를 깨우기 위한 정식 시스템 권한 선언 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    
+    <!-- 상단 알림창에 주행 중임을 상시 강제 고지하여 배터리 절전 통제망을 무력화하는 서비스 권한 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- 📸 지도 캡처 스크린샷 및 현장 사진 촬영 하드웨어 전용 통로 -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.CAMERA" />
@@ -36,6 +44,7 @@
             </intent-filter>
         </activity>
 
+        <!-- 🛠️ 안드로이드 OS 사령부에 Geolocator 포그라운드 엔진 유닛을 정식 재등록 -->
         <service
             android:name="com.baseflow.geolocator.GeolocatorForegroundService"
             android:enabled="true"
