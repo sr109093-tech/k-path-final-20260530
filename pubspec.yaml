@@ -21,9 +21,10 @@ dependencies:
   path_provider: ^2.1.1
   permission_handler: ^11.3.0
   # 🛠️ [★누락 결함 완치 핵심]: 홈 화면 웹 링크 연동 및 GPX 기록 공유를 위한 정품 플러그인 재결합
-  url_launcher: ^6.2.5
+  url_launcher: ^6.3.2
   share_plus: ^7.2.2
   app_settings: ^8.0.0
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

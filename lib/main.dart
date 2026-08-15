@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
-// 🛠️ [시스템 설정창 개통]: 1번 사진의 탭을 누르면 2번 스마트폰 시스템 애플리케이션 정보창이 즉시 뜨도록 돕는 플러그인
 import 'package:app_settings/app_settings.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'dart:io';
 import 'tracking_screen.dart';
 import 'history_screen.dart';
 
@@ -42,23 +44,145 @@ class _MainScreenState extends State<MainScreen> {
   String _userName = "강인구";
   String? _profileImagePath;
 
-  // 기존 누적 스태츠 데이터 로직 무결점 보존
-  final int _totalCount = 77;
-  final double _totalDistance = 59.9;
+  // 🎯 실시간 동적 누적 변수
+  int _totalCount = 0;
+  double _totalDistance = 0.0;
+
+  // 실시간 날씨 데이터 상태 변수
+  String _weatherStatus = "비/흐림";
+  String _temperature = "20.5°C";
+  String _airQuality = "보통";
+  bool _isWeatherLoading = false;
 
   @override
   void initState() {
     super.initState();
     _loadUserConfig();
+    _fetchWeatherData();
   }
 
+  // 📊 [누적 기록 완전 복구 Engine]: 저장소 내 모든 가능한 Key와 JSON 형식을 전수 탐색
   Future<void> _loadUserConfig() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _isEnglish = prefs.getBool('is_english_mode') ?? false;
-      _userName = prefs.getString('user_name') ?? "강인구";
-      _profileImagePath = prefs.getString('profile_image_path');
-    });
+    
+    // 앱 내에서 사용 가능한 모든 기록 관련 Key 목록 전수 조사
+    final possibleKeys = [
+      'records',
+      'history_list',
+      'workout_records',
+      'workout_history',
+      'kpath_history'
+    ];
+
+    List<String> rawRecords = [];
+    for (String key in possibleKeys) {
+      List<String>? fetched = prefs.getStringList(key);
+      if (fetched != null && fetched.isNotEmpty) {
+        rawRecords.addAll(fetched);
+      }
+    }
+
+    // 중복 데이터 제거 (동일한 JSON 문자열 중복 방지)
+    rawRecords = rawRecords.toSet().toList();
+
+    int count = rawRecords.length;
+    double sumDist = 0.0;
+
+    for (String item in rawRecords) {
+      try {
+        dynamic decoded = jsonDecode(item);
+        if (decoded is Map<String, dynamic>) {
+          dynamic distValue = decoded['distance'] ?? 
+                              decoded['dist'] ?? 
+                              decoded['totalDistance'] ?? 
+                              decoded['distanceKm'];
+
+          if (distValue != null) {
+            if (distValue is num) {
+              sumDist += distValue.toDouble();
+            } else if (distValue is String) {
+              sumDist += double.tryParse(distValue) ?? 0.0;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint("기록 파싱 완치 예외 방어: $e");
+      }
+    }
+
+    // 만약 파싱된 기록 목록이 없으나 별도 저장된 누적키가 존재하는 경우 백업 적용
+    if (count == 0) {
+      count = prefs.getInt('total_count') ?? prefs.getInt('workout_count') ?? 0;
+      sumDist = prefs.getDouble('total_distance') ?? prefs.getDouble('workout_distance') ?? 0.0;
+    }
+
+    if (mounted) {
+      setState(() {
+        _isEnglish = prefs.getBool('is_english_mode') ?? false;
+        _userName = prefs.getString('user_name') ?? "강인구";
+        _profileImagePath = prefs.getString('profile_image_path');
+        _totalCount = count;
+        _totalDistance = double.parse(sumDist.toStringAsFixed(1));
+      });
+    }
+  }
+
+  // ⛅ Open-Meteo 실시간 공공 날씨 API 수신
+  Future<void> _fetchWeatherData() async {
+    setState(() => _isWeatherLoading = true);
+    try {
+      final weatherUri = Uri.parse(
+        'https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&current_weather=true'
+      );
+      final airUri = Uri.parse(
+        'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=37.5665&longitude=126.9780&current=pm10,pm2_5'
+      );
+
+      final responseWeather = await http.get(weatherUri).timeout(const Duration(seconds: 5));
+      final responseAir = await http.get(airUri).timeout(const Duration(seconds: 5));
+
+      if (responseWeather.statusCode == 200) {
+        final data = jsonDecode(responseWeather.body);
+        double temp = data['current_weather']['temperature'] ?? 20.5;
+        int weatherCode = data['current_weather']['weathercode'] ?? 0;
+
+        String statusStr = "맑음";
+        if (weatherCode >= 1 && weatherCode <= 3) statusStr = "구름조금";
+        else if (weatherCode >= 45 && weatherCode <= 48) statusStr = "안개";
+        else if (weatherCode >= 51 && weatherCode <= 67) statusStr = "비/흐림";
+        else if (weatherCode >= 71) statusStr = "눈";
+
+        _weatherStatus = statusStr;
+        _temperature = "${temp.toStringAsFixed(1)}°C";
+      }
+
+      if (responseAir.statusCode == 200) {
+        final airData = jsonDecode(responseAir.body);
+        double pm10 = (airData['current']?['pm10'] ?? 30.0).toDouble();
+        if (pm10 <= 30) _airQuality = _isEnglish ? "Good" : "좋음";
+        else if (pm10 <= 80) _airQuality = _isEnglish ? "Normal" : "보통";
+        else if (pm10 <= 150) _airQuality = _isEnglish ? "Poor" : "나쁨";
+        else _airQuality = _isEnglish ? "Very Poor" : "매우나쁨";
+      }
+    } catch (e) {
+      debugPrint("날씨 API 수신 예외 방어: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _isWeatherLoading = false);
+      }
+    }
+  }
+
+  // 🔗 외부 브라우저(두루누비 / 기상청) 웹사이트 연동
+  Future<void> _launchWebUrl(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    try {
+      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+        await launchUrl(url, mode: LaunchMode.platformDefault);
+      }
+    } catch (e) {
+      debugPrint("웹페이지 호출 예외 방어: $e");
+    }
   }
 
   void _navigateToSettings() async {
@@ -75,7 +199,7 @@ class _MainScreenState extends State<MainScreen> {
         ),
       ),
     );
-    _loadUserConfig(); // 설정창 다녀오면 프로필 사진과 한글/영문 최신 상태 동기화
+    _loadUserConfig();
   }
 
   @override
@@ -91,12 +215,11 @@ class _MainScreenState extends State<MainScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // 프로필 사진 등록 시 인사말 옆에 동그랗고 예쁜 원형 액자 표출
                   Row(
                     children: [
                       if (_profileImagePath != null && File(_profileImagePath!).existsSync()) ...[
                         CircleAvatar(
-                          radius: 20, // 인삿말 크기 축소에 맞춰 액자도 조화롭게 세련된 크기로 조율
+                          radius: 20,
                           backgroundColor: Colors.cyanAccent,
                           backgroundImage: FileImage(File(_profileImagePath!)),
                         ),
@@ -109,7 +232,6 @@ class _MainScreenState extends State<MainScreen> {
                         ),
                         const SizedBox(width: 10),
                       ],
-                      // 🎯 [요청 사항 반영]: 기존 22 크기에서 작고 정갈한 18 크기로 축소 완료
                       Text(
                         _isEnglish ? 'Welcome, $_userName' : '반갑습니다, $_userName 님',
                         style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
@@ -153,7 +275,7 @@ class _MainScreenState extends State<MainScreen> {
                         ],
                       ),
                       
-                      // 🎯 [요청 사항 반영]: 누적 기록 디스크 탭을 누르면 역사적인 운동기록 화면으로 진입하도록 개통 완료
+                      // 🎯 누적 기록 원형 디스크 (클릭 시 이력 화면 진입 및 다녀오면 자동 갱신)
                       GestureDetector(
                         onTap: () {
                           Navigator.push(
@@ -174,7 +296,10 @@ class _MainScreenState extends State<MainScreen> {
                             children: [
                               Text(_isEnglish ? 'Total' : '누적 기록', style: const TextStyle(color: Colors.cyanAccent, fontSize: 13, fontWeight: FontWeight.bold)),
                               const SizedBox(height: 6),
-                              Text('≈ $_totalCount${_isEnglish ? '次' : '회'}', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                              Text(
+                                _isEnglish ? '≈ $_totalCount times' : '≈ $_totalCount회', 
+                                style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)
+                              ),
                               const SizedBox(height: 2),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -193,7 +318,7 @@ class _MainScreenState extends State<MainScreen> {
                 ),
               ),
 
-              // ⛅ 최하단 공공 날씨 패널 및 서브 링크 버튼 라인 (기존 소스 무결점 보존)
+              // ⛅ 실시간 날씨 패널
               Column(
                 children: [
                   Container(
@@ -206,41 +331,60 @@ class _MainScreenState extends State<MainScreen> {
                           children: [
                             const Icon(Icons.umbrella_rounded, color: Colors.purpleAccent, size: 18),
                             const SizedBox(width: 6),
-                            Text(_isEnglish ? 'Rain/Cloudy' : '비/흐림', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                            Text(_weatherStatus, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
                             const SizedBox(width: 10),
                             const Icon(Icons.device_thermostat_rounded, color: Colors.orangeAccent, size: 18),
-                            Text('20.5°C', style: const TextStyle(color: Colors.white, fontSize: 14)),
+                            Text(_temperature, style: const TextStyle(color: Colors.white, fontSize: 14)),
                           ],
                         ),
                         Row(
                           children: [
                             const Icon(Icons.air_rounded, color: Colors.tealAccent, size: 18),
-                            Text(_isEnglish ? ' Air: Poor' : ' 미세먼지: 나쁨', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text(
+                              _isEnglish ? ' Air: $_airQuality' : ' 미세먼지: $_airQuality', 
+                              style: TextStyle(
+                                color: _airQuality.contains('나쁨') ? Colors.orange : Colors.cyanAccent, 
+                                fontWeight: FontWeight.bold, 
+                                fontSize: 13
+                              )
+                            ),
                             const SizedBox(width: 6),
-                            const Icon(Icons.refresh_rounded, color: Colors.white60, size: 16),
+                            GestureDetector(
+                              onTap: _fetchWeatherData,
+                              child: _isWeatherLoading 
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent))
+                                  : const Icon(Icons.refresh_rounded, color: Colors.white60, size: 18),
+                            ),
                           ],
                         )
                       ],
                     ),
                   ),
                   const SizedBox(height: 16),
+                  
                   Row(
                     children: [
                       Expanded(
                         child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1A1A32), side: BorderSide(color: Colors.cyanAccent.withOpacity(0.3))),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1A1A32), 
+                            side: BorderSide(color: Colors.cyanAccent.withOpacity(0.3))
+                          ),
                           icon: const Icon(Icons.map, color: Colors.cyanAccent, size: 18),
                           label: Text(_isEnglish ? 'Durunubi' : '두루누비 코스북', style: const TextStyle(color: Colors.white)),
-                          onPressed: () {},
+                          onPressed: () => _launchWebUrl('https://www.durunubi.kr'),
                         ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1A1A32), side: BorderSide(color: Colors.orangeAccent.withOpacity(0.3))),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1A1A32), 
+                            side: BorderSide(color: Colors.orangeAccent.withOpacity(0.3))
+                          ),
                           icon: const Icon(Icons.wb_sunny_rounded, color: Colors.orangeAccent, size: 18),
                           label: Text(_isEnglish ? 'KMA Weather' : '기상청 상세특보', style: const TextStyle(color: Colors.white)),
-                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => HistoryScreen(isEnglish: _isEnglish))),
+                          onPressed: () => _launchWebUrl('https://www.weather.go.kr'),
                         ),
                       ),
                     ],
@@ -367,7 +511,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // 🛠️ 스마트폰 시스템 설정 페이지(2번 사진 화면)를 다이렉트로 개방하는 기능 구현
   void _openAndroidAppSettings() async {
     try {
       await AppSettings.openAppSettings();
@@ -397,7 +540,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start, // 🛠️ [문법 완치]: 구조를 깨뜨리던 이물질 오타 전면 축출 완료
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Card(
               color: const Color(0xFF1A1A32),
@@ -513,21 +656,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 24),
 
-            // 🎯 누르면 2번 사진인 안드로이드 애플리케이션 정보창이 바로 뜨는 탭 버튼
             _buildSectionHeader(_isEnglishMode ? "App Default Settings" : "앱 기본설정 메뉴"),
             InkWell(
-              onTap: _openAndroidAppSettings, // 누르면 2번 화면으로 다이렉트 도약 점프
+              onTap: _openAndroidAppSettings,
               borderRadius: BorderRadius.circular(12),
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: const Color(0xFF16162A),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.cyanAccent.withOpacity(0.3), width: 1), // 터치 버튼임을 고지하는 밝은 테두리 마감
+                  border: Border.all(color: Colors.cyanAccent.withOpacity(0.3), width: 1),
                 ),
                 child: Column(
                   children: [
-                    // 🛠️ FittedBox 장착으로 1번 사진 우측 글자가 잘려 노란 검정 빗금 에러 배너가 터지던 레이아웃 버그 완치
                     _buildSettingRow(Icons.gps_fixed_rounded, _isEnglishMode ? "GPS Interval" : "위성 수신 샘플링 주기", "1초 (고정)"),
                     const Divider(color: Colors.white10, height: 20),
                     _buildSettingRow(Icons.map_rounded, _isEnglishMode ? "Map Engine" : "기본 맵 엔진 드라이버", "OpenStreetMap"),
@@ -596,7 +737,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // 글자 넘침 버그를 철통 방어하기 위해 내부 정밀 FittedBox 캡슐 마감
   Widget _buildSettingRow(IconData icon, String label, String value) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
